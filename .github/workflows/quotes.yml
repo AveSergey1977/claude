@@ -1,0 +1,71 @@
+name: Quotes
+
+# Cron runs in UTC. The trading-hours window 07:00–21:45 UTC covers the LSE open
+# (08:00 London, BST/GMT) through the NYSE close (16:00 New York, EDT/EST);
+# scripts/fetch_quotes.py gate decides against the real session times.
+on:
+  schedule:
+    - cron: "*/15 7-21 * * 1-5"   # every 15 min while LSE or NYSE is open
+    - cron: "0 */6 * * *"         # every 6 h otherwise (must match OFF_HOURS_CRON)
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "scripts/**"
+      - ".github/workflows/quotes.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: python scripts/fetch_quotes.py gate
+
+      - id: pages
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/configure-pages@v5
+
+      - if: steps.gate.outputs.run == 'true'
+        run: >
+          python scripts/fetch_quotes.py fetch
+          --out site/data/quotes.json
+          --prev-url "${{ steps.pages.outputs.base_url }}/data/quotes.json"
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

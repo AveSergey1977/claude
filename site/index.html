@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Портфель: котировки</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: ledger sheet — summary strip on top, one holdings table below, footnotes last. */
+:root {
+  --bg: #eef2f0;
+  --surface: #ffffff;
+  --ink: #14201c;
+  --muted: #5b6a65;
+  --line: #d5ddd9;
+  --accent: #2b59c3;
+  --up: #17774a;
+  --down: #b3261e;
+  --warn-bg: #fff3d6;
+  --warn-ink: #7a5300;
+  --font-display: "Familjen Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1312; --surface: #151c1a; --ink: #e4ebe8; --muted: #92a29c; --line: #26312e;
+    --accent: #86a8ff; --up: #4cc38a; --down: #ff7b72; --warn-bg: #3a2e10; --warn-ink: #f2cf7a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1312; --surface: #151c1a; --ink: #e4ebe8; --muted: #92a29c; --line: #26312e;
+  --accent: #86a8ff; --up: #4cc38a; --down: #ff7b72; --warn-bg: #3a2e10; --warn-ink: #f2cf7a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 15px/1.5 var(--font-body);
+}
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-inline: max(16px, env(safe-area-inset-left, 0px));
+  padding-block: 28px 40px;
+  display: grid;
+  gap: 24px;
+}
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.up { color: var(--up); }
+.down { color: var(--down); }
+
+/* Header */
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+h1 { margin: 0; font: 700 1.5rem/1.1 var(--font-display); letter-spacing: -0.01em; text-wrap: balance; }
+.status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 0.8125rem; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); white-space: nowrap;
+}
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.pill[data-open="true"] .dot { background: var(--up); }
+
+/* Summary */
+.summary {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+  border-top: 2px solid var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+.summary > div { padding-block: 14px 16px; padding-inline: 0 16px; min-width: 0; }
+.summary > div + div { padding-left: 16px; border-left: 1px solid var(--line); }
+.label { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.total { font: 500 clamp(1.9rem, 5vw, 2.75rem)/1.1 var(--font-num); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; margin-top: 4px; overflow-wrap: anywhere; }
+.metric { font: 500 1.15rem/1.3 var(--font-num); font-variant-numeric: tabular-nums; margin-top: 6px; overflow-wrap: anywhere; }
+.sub { font-size: 0.8125rem; color: var(--muted); margin-top: 2px; }
+
+/* Holdings table */
+.sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px 12px; text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th {
+  font: 500 0.72rem/1.2 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); border-bottom: 1px solid var(--line);
+}
+tbody tr + tr td { border-top: 1px solid var(--line); }
+tfoot td { border-top: 2px solid var(--ink); font-weight: 600; }
+.sym { font: 600 1rem/1.2 var(--font-display); letter-spacing: 0.01em; }
+.name { font-size: 0.8rem; color: var(--muted); white-space: normal; max-width: 26ch; }
+.cur { font-size: 0.75rem; color: var(--muted); margin-left: 4px; font-family: var(--font-body); }
+.badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px;
+  background: var(--warn-bg); color: var(--warn-ink); font: 500 0.68rem/1.4 var(--font-body);
+  letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 2px;
+}
+.qty {
+  width: 8.5em; padding: 6px 8px; text-align: right;
+  font: 500 0.95rem/1.2 var(--font-num); font-variant-numeric: tabular-nums;
+  color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+}
+.qty:hover { border-color: var(--muted); }
+.qty:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.share-bar { display: block; height: 3px; margin-top: 5px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.share-bar i { display: block; height: 100%; background: var(--accent); }
+
+button.link {
+  font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+button.link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.notice { padding: 10px 14px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); font-size: 0.875rem; }
+
+footer { display: grid; gap: 6px; font-size: 0.8125rem; color: var(--muted); max-width: 75ch; }
+footer p { margin: 0; }
+
+/* Phone: rows become stacked cards; the quantity field stays full-size. */
+@media (max-width: 680px) {
+  .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary > div:first-child { grid-column: 1 / -1; border-bottom: 1px solid var(--line); }
+  .summary > div:nth-child(2) { border-left: 0; padding-left: 0; }
+  thead { display: none; }
+  table, tbody, tfoot, tr, td { display: block; }
+  tbody tr {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px;
+    padding: 12px 14px;
+  }
+  tbody tr + tr { border-top: 1px solid var(--line); }
+  tbody tr + tr td { border-top: 0; }
+  td { padding: 0; white-space: normal; }
+  td[data-k]::before { content: attr(data-k); display: block; font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  td.c-sym { grid-column: 1 / -1; }
+  td.c-price, td.c-chg, td.c-usd { text-align: left; }
+  td.c-chg { grid-column: 2; grid-row: 2; text-align: right; }
+  td.c-qty { grid-column: 1; text-align: left; }
+  td.c-val { grid-column: 2; align-self: end; }
+  td.c-share { grid-column: 1 / -1; text-align: left; }
+  .qty { width: 100%; max-width: 12em; }
+  tfoot tr { display: flex; justify-content: space-between; padding: 12px 14px; border-top: 2px solid var(--ink); }
+  tfoot td { border: 0; }
+  tfoot td.hide-sm { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .share-bar i { transition: width 0.3s ease; }
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <h1>Портфель</h1>
+    <div class="status">
+      <span class="pill" id="lse" data-open="false"><span class="dot"></span>LSE</span>
+      <span class="pill" id="nyse" data-open="false"><span class="dot"></span>NYSE</span>
+      <span class="muted" id="updated">Загрузка котировок…</span>
+    </div>
+  </header>
+
+  <section class="summary" aria-label="Итоги">
+    <div>
+      <div class="label">Стоимость портфеля, USD</div>
+      <div class="total" id="total">—</div>
+      <div class="sub" id="positions">Укажите количество бумаг в таблице</div>
+    </div>
+    <div>
+      <div class="label">Изменение за день</div>
+      <div class="metric" id="day">—</div>
+      <div class="sub">к закрытию предыдущей сессии</div>
+    </div>
+    <div>
+      <div class="label">GBP/USD</div>
+      <div class="metric" id="fx">—</div>
+      <div class="sub" id="fx-src">&nbsp;</div>
+    </div>
+  </section>
+
+  <div class="notice" id="notice" hidden></div>
+
+  <section class="sheet" aria-label="Позиции">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Бумага</th>
+          <th scope="col">Цена</th>
+          <th scope="col">За день</th>
+          <th scope="col">Цена, USD</th>
+          <th scope="col">Количество</th>
+          <th scope="col">Стоимость, USD</th>
+          <th scope="col">Доля</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+      <tfoot>
+        <tr>
+          <td>Итого</td>
+          <td class="hide-sm"></td><td class="hide-sm"></td><td class="hide-sm"></td><td class="hide-sm"></td>
+          <td class="num" id="total-foot">—</td>
+          <td class="hide-sm num">100%</td>
+        </tr>
+      </tfoot>
+    </table>
+  </section>
+
+  <footer>
+    <p id="next">&nbsp;</p>
+    <p>Обновление котировок: каждые 15 минут, пока открыта LSE (08:00–16:30 по Лондону) или NYSE (09:30–16:00 по Нью-Йорку), в остальное время — каждые 6 часов. Праздничные дни бирж не учитываются. Источник: Yahoo Finance; котировки могут поступать с задержкой до 15–20 минут, запуск по расписанию GitHub Actions может смещаться на несколько минут.</p>
+    <p>Пересчёт в USD — по текущему курсу. Количество бумаг хранится только в этом браузере. <button type="button" class="link" id="clear">Обнулить количество</button></p>
+  </footer>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const DATA_URL = "data/quotes.json";
+  const POLL_MS = 5 * 60 * 1000;
+  const STORE_KEY = "portfolio.qty.v1";
+  const SESSIONS = {
+    LSE: { tz: "Europe/London", open: 8 * 60, close: 16 * 60 + 30 },
+    NYSE: { tz: "America/New_York", open: 9 * 60 + 30, close: 16 * 60 },
+  };
+  const GRACE_MIN = 20;
+
+  const $ = (id) => document.getElementById(id);
+  const usd = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+  const num = (v, d = 2) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
+  const pct = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + num(Math.abs(v), 2) + "%";
+  const signedUsd = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + usd.format(Math.abs(v));
+  const tone = (v) => (v > 0 ? "up" : v < 0 ? "down" : "");
+  const timeFmt = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
+
+  let data = null;
+  let qty = loadQty();
+
+  function loadQty() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { return {}; }
+  }
+  function saveQty() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(qty)); } catch { /* storage unavailable */ }
+  }
+  function parseQty(s) {
+    const v = parseFloat(String(s).replace(/\s/g, "").replace(",", "."));
+    return Number.isFinite(v) && v >= 0 ? v : 0;
+  }
+
+  // Local minutes-of-day and weekday for a time zone, via Intl.
+  function localParts(date, tz) {
+    const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(date).map((x) => [x.type, x.value]));
+    return { wd: p.weekday, min: Number(p.hour) * 60 + Number(p.minute) };
+  }
+  function isOpen(name, date, grace = 0) {
+    const s = SESSIONS[name];
+    const { wd, min } = localParts(date, s.tz);
+    return wd !== "Sat" && wd !== "Sun" && min >= s.open && min < s.close + grace;
+  }
+  const inSession = (d, g = 0) => isOpen("LSE", d, g) || isOpen("NYSE", d, g);
+
+  // Mirrors the workflow crons + gate: */15 07-21 UTC Mon–Fri while in session, 0 */6 UTC otherwise.
+  function nextRun(from) {
+    const t = new Date(from);
+    t.setUTCSeconds(0, 0);
+    t.setUTCMinutes(Math.floor(t.getUTCMinutes() / 15) * 15 + 15);
+    for (let i = 0; i < 4 * 24 * 3; i++, t.setUTCMinutes(t.getUTCMinutes() + 15)) {
+      const h = t.getUTCHours(), m = t.getUTCMinutes(), wd = t.getUTCDay();
+      const session = inSession(t, GRACE_MIN);
+      if (session && wd >= 1 && wd <= 5 && h >= 7 && h <= 21) return new Date(t);
+      if (!session && m === 0 && h % 6 === 0) return new Date(t);
+    }
+    return null;
+  }
+
+  function renderStatus() {
+    const now = new Date();
+    for (const k of ["LSE", "NYSE"]) {
+      const el = $(k.toLowerCase());
+      const open = isOpen(k, now);
+      el.dataset.open = String(open);
+      el.lastChild.textContent = `${k} ${open ? "открыта" : "закрыта"}`;
+    }
+    const nr = nextRun(now);
+    $("next").textContent = nr ? `Следующее плановое обновление данных: ≈ ${timeFmt.format(nr)}.` : "";
+  }
+
+  function buildRows() {
+    const tbody = $("rows");
+    tbody.textContent = "";
+    for (const q of data.quotes) {
+      const tr = document.createElement("tr");
+      tr.dataset.symbol = q.symbol;
+      const id = "qty-" + q.symbol.replace(/[^A-Za-z0-9]/g, "_");
+      const price = q.price != null
+        ? `<span class="num">${num(q.price, 2)}</span><span class="cur">${q.currency}</span>` : "—";
+      const chg = q.change_pct != null ? `<span class="num ${tone(q.change_pct)}">${pct(q.change_pct)}</span>` : "—";
+      const pUsd = q.price_usd != null ? `<span class="num">${usd.format(q.price_usd)}</span>` : "—";
+      tr.innerHTML = `
+        <td class="c-sym"><span class="sym"></span>${q.stale ? '<span class="badge" title="Последняя успешная котировка; при последнем обновлении получить данные не удалось">устар.</span>' : ""}
+          <div class="name"></div></td>
+        <td class="c-price" data-k="Цена">${price}</td>
+        <td class="c-chg" data-k="За день">${chg}</td>
+        <td class="c-usd" data-k="Цена, USD">${pUsd}</td>
+        <td class="c-qty" data-k="Количество">
+          <input class="qty" id="${id}" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Количество ${q.symbol}"></td>
+        <td class="c-val num" data-k="Стоимость, USD">—</td>
+        <td class="c-share num" data-k="Доля"><span class="v">—</span><span class="share-bar"><i style="width:0"></i></span></td>`;
+      tr.querySelector(".sym").textContent = q.symbol;
+      tr.querySelector(".name").textContent = [q.name !== q.symbol ? q.name : "", q.exchange].filter(Boolean).join(" · ");
+      const input = tr.querySelector("input");
+      if (qty[q.symbol]) input.value = String(qty[q.symbol]).replace(".", ",");
+      input.addEventListener("input", () => {
+        const v = parseQty(input.value);
+        if (v) qty[q.symbol] = v; else delete qty[q.symbol];
+        saveQty();
+        renderTotals();
+      });
+      tbody.appendChild(tr);
+    }
+  }
+
+  function renderTotals() {
+    let total = 0, day = 0, prevTotal = 0, held = 0, missing = [];
+    const values = {};
+    for (const q of data.quotes) {
+      const n = qty[q.symbol] || 0;
+      if (!n) continue;
+      held++;
+      if (q.price_usd == null) { missing.push(q.symbol); continue; }
+      const v = n * q.price_usd;
+      values[q.symbol] = v;
+      total += v;
+      if (q.prev_close) {
+        const rate = q.price_usd / q.price;
+        day += n * (q.price - q.prev_close) * rate;
+        prevTotal += n * q.prev_close * rate;
+      }
+    }
+    for (const tr of $("rows").children) {
+      const s = tr.dataset.symbol;
+      const v = values[s];
+      tr.querySelector(".c-val").textContent = v != null ? usd.format(v) : "—";
+      const share = v != null && total > 0 ? (v / total) * 100 : null;
+      tr.querySelector(".c-share .v").textContent = share != null ? num(share, 1) + "%" : "—";
+      tr.querySelector(".c-share i").style.width = (share || 0) + "%";
+    }
+    $("total").textContent = held ? usd.format(total) : "—";
+    $("total-foot").textContent = held ? usd.format(total) : "—";
+    $("positions").textContent = held
+      ? `${held} ${plural(held, ["позиция", "позиции", "позиций"])}` + (missing.length ? ` · без цены: ${missing.join(", ")}` : "")
+      : "Укажите количество бумаг в таблице";
+    const dayEl = $("day");
+    if (held && prevTotal) {
+      dayEl.innerHTML = `<span class="${tone(day)}">${signedUsd(day)}</span> <span class="${tone(day)}" style="font-size:.85em">${pct((day / prevTotal) * 100)}</span>`;
+    } else {
+      dayEl.textContent = "—";
+    }
+  }
+
+  function plural(n, forms) {
+    const m10 = n % 10, m100 = n % 100;
+    return forms[m10 === 1 && m100 !== 11 ? 0 : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? 1 : 2];
+  }
+
+  function renderMeta() {
+    const gen = new Date(data.generated_at);
+    const ageH = (Date.now() - gen) / 36e5;
+    $("updated").textContent = `Данные на ${timeFmt.format(gen)}`;
+    const gbp = data.fx && data.fx.GBP;
+    $("fx").textContent = gbp ? num(gbp.rate, 4) : "—";
+    $("fx-src").textContent = gbp ? gbp.source + (gbp.stale ? " · устар." : "") : "";
+    const notes = [];
+    if (ageH > 7) notes.push(`Данные не обновлялись ${Math.floor(ageH)} ч. Проверьте запуски workflow «Quotes» в GitHub Actions.`);
+    const stale = data.quotes.filter((q) => q.stale).map((q) => q.symbol);
+    if (stale.length) notes.push(`Не удалось обновить: ${stale.join(", ")} — показана последняя полученная цена.`);
+    $("notice").hidden = !notes.length;
+    $("notice").textContent = notes.join(" ");
+  }
+
+  async function load() {
+    try {
+      const res = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const next = await res.json();
+      const first = !data;
+      const changedSet = !data || next.quotes.map((q) => q.symbol).join() !== data.quotes.map((q) => q.symbol).join();
+      data = next;
+      if (first || changedSet) buildRows(); else refreshRows();
+      renderMeta();
+      renderTotals();
+    } catch (e) {
+      if (!data) {
+        $("updated").textContent = "Нет данных";
+        $("notice").hidden = false;
+        $("notice").textContent = `Не удалось загрузить котировки (${e.message}). Файл data/quotes.json создаётся workflow «Quotes» при первом запуске.`;
+      }
+    }
+    renderStatus();
+  }
+
+  // Re-render quote cells without recreating inputs, so focus and typing survive a poll.
+  function refreshRows() {
+    const focused = document.activeElement && document.activeElement.id;
+    const caret = focused && document.activeElement.selectionStart;
+    buildRows();
+    if (focused) {
+      const el = $(focused);
+      if (el) { el.focus(); try { el.setSelectionRange(caret, caret); } catch { /* not a text field */ } }
+    }
+  }
+
+  $("clear").addEventListener("click", () => {
+    qty = {};
+    saveQty();
+    for (const i of document.querySelectorAll(".qty")) i.value = "";
+    if (data) renderTotals();
+  });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+  setInterval(load, POLL_MS);
+  setInterval(renderStatus, 60 * 1000);
+  load();
+})();
+</script>
+</body>
+</html>
