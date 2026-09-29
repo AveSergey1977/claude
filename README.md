@@ -12,7 +12,7 @@
 
 ## Запуск
 
-1. Слить ветку в `main` (расписание GitHub Actions работает только в ветке по умолчанию).
+1. Workflow должен находиться в ветке по умолчанию: расписание GitHub Actions и деплой в окружение `github-pages` работают только из неё. Сейчас ветка по умолчанию — `claude/stock-portfolio-tracker-c5bit1`; при переходе на `main` достаточно слить ветку и сменить default branch.
 2. Settings → Pages → Build and deployment → Source: **GitHub Actions**.
 3. Actions → Quotes → **Run workflow** — первый запуск создаёт `data/quotes.json` и публикует страницу.
 4. Адрес страницы: `https://<owner>.github.io/<repo>/` (виден в Settings → Pages и в выводе шага deploy).
