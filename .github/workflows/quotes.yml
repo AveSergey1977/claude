@@ -49,6 +49,9 @@ jobs:
         uses: actions/configure-pages@v5
 
       - if: steps.gate.outputs.run == 'true'
+        run: pip install --quiet "curl_cffi>=0.7"
+
+      - if: steps.gate.outputs.run == 'true'
         run: >
           python scripts/fetch_quotes.py fetch
           --out site/data/quotes.json

@@ -6,7 +6,9 @@ Subcommands:
          schedule: every 15 min while LSE or NYSE is in session, every 6 h otherwise.
   fetch  download quotes + FX rates and write the JSON consumed by site/index.html.
 
-Standard library only, so the workflow needs no dependency install.
+Yahoo answers 429 to non-browser TLS fingerprints (e.g. urllib from GitHub
+runners), so Yahoo requests go through curl_cffi with Chrome impersonation when
+it is installed; everything else uses the standard library.
 """
 from __future__ import annotations
 
@@ -15,11 +17,15 @@ import json
 import os
 import sys
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+try:
+    from curl_cffi import requests as cffi_requests
+except ImportError:  # local runs without the dependency fall back to urllib
+    cffi_requests = None
 
 SYMBOLS = ["GOOG", "AAPL", "NVDA", "MO", "VUSA.L", "UDVD.L"]
 
@@ -72,6 +78,25 @@ def http_json(url: str, timeout: float = 20.0) -> dict:
         return json.load(resp)
 
 
+_yahoo_session = None
+
+
+def yahoo_json(url: str) -> dict:
+    global _yahoo_session
+    if cffi_requests is None:
+        return http_json(url)
+    if _yahoo_session is None:
+        _yahoo_session = cffi_requests.Session(impersonate="chrome")
+        try:  # sets the consent cookies Yahoo expects on API calls
+            _yahoo_session.get("https://fc.yahoo.com", timeout=10)
+        except Exception:
+            pass
+    resp = _yahoo_session.get(url, timeout=20)
+    if resp.status_code != 200:
+        raise ValueError(f"HTTP {resp.status_code}")
+    return resp.json()
+
+
 def yahoo_chart(symbol: str) -> dict:
     """Return the `meta` block of Yahoo's chart endpoint, trying both hosts with backoff."""
     path = f"/v8/finance/chart/{urllib.parse.quote(symbol)}?range=1d&interval=1d"
@@ -79,12 +104,12 @@ def yahoo_chart(symbol: str) -> dict:
     for attempt in range(3):
         for host in YAHOO_HOSTS:
             try:
-                data = http_json(f"https://{host}{path}")
+                data = yahoo_json(f"https://{host}{path}")
                 result = (data.get("chart") or {}).get("result") or []
                 if not result:
                     raise ValueError(f"empty result: {(data.get('chart') or {}).get('error')}")
                 return result[0]["meta"]
-            except (urllib.error.URLError, ValueError, KeyError, TimeoutError) as e:
+            except Exception as e:
                 last_err = e
         time.sleep(2 ** attempt)
     raise RuntimeError(f"{symbol}: {last_err}")
