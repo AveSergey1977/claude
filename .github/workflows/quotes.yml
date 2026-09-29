@@ -9,7 +9,8 @@ on:
     - cron: "0 */6 * * *"         # every 6 h otherwise (must match OFF_HOURS_CRON)
   workflow_dispatch:
   push:
-    branches: [main]
+    # Deploys to github-pages are allowed only from the default branch.
+    branches: [main, claude/stock-portfolio-tracker-c5bit1]
     paths:
       - "site/**"
       - "scripts/**"
