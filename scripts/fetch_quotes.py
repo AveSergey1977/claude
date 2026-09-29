@@ -229,6 +229,17 @@ def main() -> int:
         json.dump(snap, fh, ensure_ascii=False, indent=1)
     for e in snap["errors"]:
         print(f"warn: {e}", file=sys.stderr)
+    lines = ["| Тикер | Цена | Валюта | Изм., % | Цена, USD | Статус |", "|---|---:|---|---:|---:|---|"]
+    for q in snap["quotes"]:
+        fmt = lambda v, d=2: "—" if v is None else f"{v:,.{d}f}"
+        lines.append(f"| {q['symbol']} | {fmt(q.get('price'))} | {q.get('currency') or '—'} | "
+                     f"{fmt(q.get('change_pct'))} | {fmt(q.get('price_usd'))} | {'устар.' if q['stale'] else 'ok'} |")
+    for cur, fx in (i for i in snap["fx"].items() if i[0] != "USD"):
+        lines.append(f"\n{cur}/USD = {fx['rate']:.4f} ({fx.get('source')})")
+    print("\n".join(lines))
+    if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(summary, "a") as fh:
+            fh.write("\n".join(lines) + "\n")
     fresh = sum(1 for q in snap["quotes"] if not q["stale"])
     print(f"wrote {args.out}: {fresh}/{len(SYMBOLS)} fresh quotes")
     # Fail the run only if nothing at all could be fetched, so a partial outage
