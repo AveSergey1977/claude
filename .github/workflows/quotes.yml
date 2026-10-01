@@ -21,9 +21,12 @@ permissions:
   pages: write
   id-token: write
 
+# A newer run supersedes an older one. Without cancel-in-progress, a deploy job
+# stuck in "waiting" on the github-pages environment blocked the queue and every
+# later run was cancelled while pending.
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
