@@ -100,6 +100,7 @@ h1 { margin: 0; font: 700 1.5rem/1.1 var(--font-display); letter-spacing: -0.01e
 .total { font: 500 clamp(1.9rem, 5vw, 2.75rem)/1.1 var(--font-num); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; margin-top: 4px; overflow-wrap: anywhere; }
 .metric { font: 500 1.15rem/1.3 var(--font-num); font-variant-numeric: tabular-nums; margin-top: 6px; overflow-wrap: anywhere; }
 .sub { font-size: 0.8125rem; color: var(--muted); margin-top: 2px; }
+.fx-pair { display: block; white-space: nowrap; }
 
 /* Holdings table */
 .sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; }
@@ -342,7 +343,7 @@ dialog .field { width: 100%; }
   const $ = (id) => document.getElementById(id);
   const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
   const num = (v, d = 2) => new Intl.NumberFormat("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
-  const pct = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + num(Math.abs(v), 2) + "%";
+  const pct = (v) => { const r = Math.round(v * 100) / 100; return (r > 0 ? "+" : r < 0 ? "−" : "") + num(Math.abs(r), 2) + "%"; };
   const signedUsd = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + usd.format(Math.abs(v));
   const tone = (v) => (v > 0 ? "up" : v < 0 ? "down" : "");
   const timeFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
@@ -434,7 +435,9 @@ dialog .field { width: 100%; }
       const id = "qty-" + q.symbol.replace(/[^A-Za-z0-9]/g, "_");
       const price = q.price != null
         ? `<span class="num">${num(q.price, 2)}</span><span class="cur">${esc(q.currency)}</span>` : "—";
-      const chg = q.change_pct != null ? `<span class="num ${tone(q.change_pct)}">${pct(q.change_pct)}</span>` : "—";
+      // Colour follows the displayed (rounded) change, so "0.00%" stays neutral.
+      const dayTone = q.change_pct != null ? tone(Math.round(q.change_pct * 100) / 100) : "";
+      const chg = q.change_pct != null ? `<span class="num ${dayTone}">${pct(q.change_pct)}</span>` : "—";
       const pUsd = q.price_usd != null ? `<span class="num">${usd.format(q.price_usd)}</span>` : "—";
       let badge = "";
       if (q.pending) badge = '<span class="badge info">pending</span>';
@@ -447,7 +450,7 @@ dialog .field { width: 100%; }
              <button type="button" class="btn small danger" data-act="remove-yes">Remove</button>
              <button type="button" class="btn small" data-act="remove-no">Keep</button></div>` : "";
       tr.innerHTML = `
-        <td class="c-sym"><div class="sym-line"><span class="sym">${esc(q.symbol)}</span>${badge}
+        <td class="c-sym"><div class="sym-line"><span class="sym ${dayTone}">${esc(q.symbol)}</span>${badge}
           <button type="button" class="icon-btn" data-act="remove" aria-label="Remove ${esc(q.symbol)}" title="Remove ${esc(q.symbol)}">×</button></div>
           <div class="name">${esc(sub)}</div>${confirm}</td>
         <td class="c-price" data-k="Price">${price}</td>
@@ -532,8 +535,10 @@ dialog .field { width: 100%; }
     const gen = new Date(data.generated_at);
     const ageH = (Date.now() - gen) / 36e5;
     $("updated").textContent = `Data as of ${timeFmt.format(gen)}`;
-    const fx = Object.entries(data.fx || {}).filter(([cur]) => cur !== "USD");
-    $("fx").textContent = fx.length ? fx.map(([cur, f]) => `${cur} ${num(f.rate, 4)}`).join(" · ") : "—";
+    const order = (cur) => (cur === "GBP" ? 0 : cur === "EUR" ? 1 : 2);
+    const fx = Object.entries(data.fx || {}).filter(([cur]) => cur !== "USD")
+      .sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b));
+    $("fx").innerHTML = fx.length ? fx.map(([cur, f]) => `<span class="fx-pair">${esc(cur)}/USD ${num(f.rate, 4)}</span>`).join("") : "—";
     $("fx-src").textContent = fx.length ? [...new Set(fx.map(([, f]) => f.source + (f.stale ? " (stale)" : "")))].join(", ") : "";
     const notes = [];
     if (ageH > 7) {

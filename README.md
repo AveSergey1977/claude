@@ -10,7 +10,7 @@ Live page: https://avesergey1977.github.io/claude/
 |---|---|---|
 | Page | `site/index.html` | Quotes table, quantities, totals in USD, adding and removing securities. Quantities are stored in the browser's `localStorage` and never leave it. Data is re-read every 5 minutes (every 30 s while an edit is pending) and when the tab regains focus. |
 | Security list | `site/symbols.json` | Yahoo Finance tickers in the portfolio. The page edits this file through the GitHub API; the commit triggers a fresh fetch and deploy. |
-| Fetcher | `scripts/fetch_quotes.py` | Fetches quotes and FX rates to USD from Yahoo Finance (through `curl_cffi` with browser impersonation; plain clients get HTTP 429), with the ECB rate via Frankfurter as the FX fallback. Writes `site/data/quotes.json`. Prices quoted in pence (GBp) are converted to GBP. A security that fails keeps its last price, marked stale; an unknown ticker is shown as "no data". |
+| Fetcher | `scripts/fetch_quotes.py` | Fetches quotes and FX rates to USD (GBP and EUR always, plus any other currency held) from Yahoo Finance (through `curl_cffi` with browser impersonation; plain clients get HTTP 429), with the ECB rate via Frankfurter as the FX fallback. Writes `site/data/quotes.json`. Prices quoted in pence (GBp) are converted to GBP. A security that fails keeps its last price, marked stale; an unknown ticker is shown as "no data". |
 | Schedule | `.github/workflows/quotes.yml` | GitHub Actions: every 15 minutes while the LSE (08:00–16:30 London) or NYSE (09:30–16:00 New York) is open, plus 20 minutes after the close; every 6 hours otherwise (00/06/12/18 UTC). Publishes to GitHub Pages. A newer run cancels an older one still in progress. |
 
 ## Adding and removing securities

@@ -56,6 +56,8 @@ CLOSE_GRACE = timedelta(minutes=20)
 # Must match the off-hours cron in .github/workflows/quotes.yml.
 OFF_HOURS_CRON = "0 */6 * * *"
 
+ALWAYS_FX = {"GBP", "EUR"}
+
 # Yahoo quotes some LSE lines in minor units (pence).
 MINOR_UNITS = {"GBp": ("GBP", 100), "GBX": ("GBP", 100), "ZAc": ("ZAR", 100), "ILA": ("ILS", 100)}
 
@@ -198,7 +200,8 @@ def build_snapshot(now: datetime, prev: dict, symbols: list[str],
         quotes.append(q)
 
     fx = {}
-    for cur in sorted({q["currency"] for q in quotes if q.get("currency")}):
+    # GBP and EUR are always shown on the page, even with no holding in them.
+    for cur in sorted(ALWAYS_FX | {q["currency"] for q in quotes if q.get("currency")}):
         try:
             fx[cur] = fetch_fx(cur)
             fx[cur]["stale"] = False
