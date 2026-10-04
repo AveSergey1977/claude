@@ -724,7 +724,7 @@ dialog .field { width: 100%; }
   $("gh-repo-name").textContent = REPO.name;
   $("gh-token-link").href = "https://github.com/settings/personal-access-tokens/new?" + new URLSearchParams({
     name: "Moot Portfolio", description: "Edit the Moot Portfolio security list",
-    target_name: REPO.owner, expires_in: "90", contents: "write",
+    target_name: REPO.owner, contents: "write",
   });
 
   function openDialog(action) {
