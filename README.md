@@ -40,3 +40,7 @@ pip install curl_cffi
 python3 scripts/fetch_quotes.py fetch --out site/data/quotes.json
 python3 -m http.server -d site 8000
 ```
+
+## Legal templates
+
+`legal-templates/` is a copy of [General-Legal/legal-templates](https://github.com/General-Legal/legal-templates) (CC0 1.0): 12 templates in Markdown (`templates/*/template.md`) and the original `.docx` files (`docx-originals/`). The upstream commit is recorded in `legal-templates/UPSTREAM_COMMIT`. The folder is outside `site/` and `scripts/`, so it does not trigger the Quotes workflow.
