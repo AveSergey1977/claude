@@ -1,10 +1,17 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<title>Портфель: котировки</title>
+<title>Moot Portfolio</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<meta name="theme-color" content="#1e9bff">
+<meta name="application-name" content="Moot Portfolio">
+<meta name="apple-mobile-web-app-title" content="Moot Portfolio">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -16,11 +23,14 @@
   --ink: #14201c;
   --muted: #5b6a65;
   --line: #d5ddd9;
-  --accent: #2b59c3;
+  --accent: #1667c7;
+  --accent-ink: #ffffff;
   --up: #17774a;
   --down: #b3261e;
   --warn-bg: #fff3d6;
   --warn-ink: #7a5300;
+  --info-bg: #e3f0ff;
+  --info-ink: #10457f;
   --font-display: "Familjen Grotesk", "Helvetica Neue", Arial, sans-serif;
   --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -29,13 +39,15 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0e1312; --surface: #151c1a; --ink: #e4ebe8; --muted: #92a29c; --line: #26312e;
-    --accent: #86a8ff; --up: #4cc38a; --down: #ff7b72; --warn-bg: #3a2e10; --warn-ink: #f2cf7a;
+    --accent: #6cb6ff; --accent-ink: #08213d; --up: #4cc38a; --down: #ff7b72;
+    --warn-bg: #3a2e10; --warn-ink: #f2cf7a; --info-bg: #10263f; --info-ink: #b9dbff;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0e1312; --surface: #151c1a; --ink: #e4ebe8; --muted: #92a29c; --line: #26312e;
-  --accent: #86a8ff; --up: #4cc38a; --down: #ff7b72; --warn-bg: #3a2e10; --warn-ink: #f2cf7a;
+  --accent: #6cb6ff; --accent-ink: #08213d; --up: #4cc38a; --down: #ff7b72;
+  --warn-bg: #3a2e10; --warn-ink: #f2cf7a; --info-bg: #10263f; --info-ink: #b9dbff;
   color-scheme: dark;
 }
 
@@ -59,9 +71,12 @@ body {
 .muted { color: var(--muted); }
 .up { color: var(--up); }
 .down { color: var(--down); }
+a { color: var(--accent); text-underline-offset: 2px; }
 
 /* Header */
-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand img { width: 34px; height: 34px; flex: none; }
 h1 { margin: 0; font: 700 1.5rem/1.1 var(--font-display); letter-spacing: -0.01em; text-wrap: balance; }
 .status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 0.8125rem; }
 .pill {
@@ -97,34 +112,80 @@ thead th {
 }
 tbody tr + tr td { border-top: 1px solid var(--line); }
 tfoot td { border-top: 2px solid var(--ink); font-weight: 600; }
+.sym-line { display: flex; align-items: center; gap: 6px; }
 .sym { font: 600 1rem/1.2 var(--font-display); letter-spacing: 0.01em; }
-.name { font-size: 0.8rem; color: var(--muted); white-space: normal; max-width: 26ch; }
+.name { font-size: 0.8rem; color: var(--muted); white-space: normal; max-width: 28ch; }
 .cur { font-size: 0.75rem; color: var(--muted); margin-left: 4px; font-family: var(--font-body); }
 .badge {
-  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px;
+  display: inline-block; padding: 1px 6px; border-radius: 4px;
   background: var(--warn-bg); color: var(--warn-ink); font: 500 0.68rem/1.4 var(--font-body);
-  letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 2px;
+  letter-spacing: 0.04em; text-transform: uppercase;
 }
+.badge.info { background: var(--info-bg); color: var(--info-ink); }
 .qty {
   width: 8.5em; padding: 6px 8px; text-align: right;
   font: 500 0.95rem/1.2 var(--font-num); font-variant-numeric: tabular-nums;
   color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
 }
 .qty:hover { border-color: var(--muted); }
-.qty:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.qty:focus-visible, .field:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
 .share-bar { display: block; height: 3px; margin-top: 5px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .share-bar i { display: block; height: 100%; background: var(--accent); }
 
+/* Buttons */
+button { font: inherit; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { cursor: progress; opacity: 0.6; }
+.btn {
+  padding: 7px 14px; border-radius: 4px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); font-weight: 500;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { border-color: var(--down); color: var(--down); }
+.btn.small { padding: 2px 8px; font-size: 0.8rem; }
+.icon-btn {
+  margin-left: auto; width: 26px; height: 26px; display: inline-grid; place-items: center;
+  border: 1px solid transparent; border-radius: 4px; background: none; color: var(--muted);
+  font-size: 1.1rem; line-height: 1;
+}
+.icon-btn:hover { color: var(--down); border-color: var(--line); }
+.confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.8rem; white-space: normal; }
 button.link {
-  font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--accent); background: none; border: 0; padding: 0;
   text-decoration: underline; text-underline-offset: 2px;
 }
-button.link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Add form */
+.add { display: grid; gap: 6px; }
+.add-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.field {
+  flex: 1 1 16em; min-width: 0; padding: 7px 10px;
+  font: 500 0.95rem/1.2 var(--font-num); color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
+}
+.msg { margin: 0; font-size: 0.875rem; min-height: 1.3em; }
+.msg.err { color: var(--down); }
 
 .notice { padding: 10px 14px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); font-size: 0.875rem; }
+.notice a { color: inherit; }
 
 footer { display: grid; gap: 6px; font-size: 0.8125rem; color: var(--muted); max-width: 75ch; }
 footer p { margin: 0; }
+
+/* GitHub connect dialog */
+dialog {
+  width: min(32rem, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--ink);
+}
+dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+dialog form { display: grid; gap: 12px; padding: 20px; }
+dialog h2 { margin: 0; font: 700 1.2rem/1.2 var(--font-display); }
+dialog p, dialog ol { margin: 0; font-size: 0.9rem; }
+dialog ol { padding-left: 1.2em; display: grid; gap: 4px; }
+dialog code { font-family: var(--font-num); font-size: 0.85em; }
+dialog .field { width: 100%; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* Phone: rows become stacked cards; the quantity field stays full-size. */
 @media (max-width: 680px) {
@@ -160,27 +221,30 @@ footer p { margin: 0; }
 <body>
 <main class="wrap">
   <header>
-    <h1>Портфель</h1>
+    <div class="brand">
+      <img src="favicon.svg" alt="" width="34" height="34">
+      <h1>Moot Portfolio</h1>
+    </div>
     <div class="status">
       <span class="pill" id="lse" data-open="false"><span class="dot"></span>LSE</span>
       <span class="pill" id="nyse" data-open="false"><span class="dot"></span>NYSE</span>
-      <span class="muted" id="updated">Загрузка котировок…</span>
+      <span class="muted" id="updated">Loading quotes…</span>
     </div>
   </header>
 
-  <section class="summary" aria-label="Итоги">
+  <section class="summary" aria-label="Summary">
     <div>
-      <div class="label">Стоимость портфеля, USD</div>
+      <div class="label">Portfolio value, USD</div>
       <div class="total" id="total">—</div>
-      <div class="sub" id="positions">Укажите количество бумаг в таблице</div>
+      <div class="sub" id="positions">Enter quantities in the table</div>
     </div>
     <div>
-      <div class="label">Изменение за день</div>
+      <div class="label">Day change</div>
       <div class="metric" id="day">—</div>
-      <div class="sub">к закрытию предыдущей сессии</div>
+      <div class="sub">vs previous session close</div>
     </div>
     <div>
-      <div class="label">GBP/USD</div>
+      <div class="label">FX to USD</div>
       <div class="metric" id="fx">—</div>
       <div class="sub" id="fx-src">&nbsp;</div>
     </div>
@@ -188,23 +252,23 @@ footer p { margin: 0; }
 
   <div class="notice" id="notice" hidden></div>
 
-  <section class="sheet" aria-label="Позиции">
+  <section class="sheet" aria-label="Positions">
     <table>
       <thead>
         <tr>
-          <th scope="col">Бумага</th>
-          <th scope="col">Цена</th>
-          <th scope="col">За день</th>
-          <th scope="col">Цена, USD</th>
-          <th scope="col">Количество</th>
-          <th scope="col">Стоимость, USD</th>
-          <th scope="col">Доля</th>
+          <th scope="col">Security</th>
+          <th scope="col">Price</th>
+          <th scope="col">Day</th>
+          <th scope="col">Price, USD</th>
+          <th scope="col">Quantity</th>
+          <th scope="col">Value, USD</th>
+          <th scope="col">Weight</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
       <tfoot>
         <tr>
-          <td>Итого</td>
+          <td>Total</td>
           <td class="hide-sm"></td><td class="hide-sm"></td><td class="hide-sm"></td><td class="hide-sm"></td>
           <td class="num" id="total-foot">—</td>
           <td class="hide-sm num">100%</td>
@@ -213,48 +277,102 @@ footer p { margin: 0; }
     </table>
   </section>
 
+  <form class="add" id="add-form" autocomplete="off" novalidate>
+    <label class="label" for="add-symbol">Add a security</label>
+    <div class="add-row">
+      <input class="field" id="add-symbol" name="symbol" type="text" inputmode="text" autocapitalize="characters" spellcheck="false"
+             maxlength="20" placeholder="Ticker, e.g. MSFT or VOD.L">
+      <button class="btn primary" type="submit" id="add-btn">Add</button>
+    </div>
+    <p class="msg muted" id="add-msg" role="status">Use the ticker exactly as Yahoo Finance shows it. London listings end in .L, Xetra in .DE.</p>
+  </form>
+
   <footer>
     <p id="next">&nbsp;</p>
-    <p>Обновление котировок: каждые 15 минут, пока открыта LSE (08:00–16:30 по Лондону) или NYSE (09:30–16:00 по Нью-Йорку), в остальное время — каждые 6 часов. Праздничные дни бирж не учитываются. Источник: Yahoo Finance; котировки могут поступать с задержкой до 15–20 минут, запуск по расписанию GitHub Actions может смещаться на несколько минут.</p>
-    <p>Пересчёт в USD — по текущему курсу. Количество бумаг хранится только в этом браузере. <button type="button" class="link" id="clear">Обнулить количество</button></p>
+    <p>Quotes refresh every 15 minutes while the LSE (08:00–16:30 London) or NYSE (09:30–16:00 New York) is open, and every 6 hours otherwise. Exchange holidays are not taken into account. Source: Yahoo Finance; quotes may be delayed by 15–20 minutes, and GitHub Actions may start scheduled runs a few minutes late.</p>
+    <p>USD values use the current FX rate. Quantities are stored in this browser only. <button type="button" class="link" id="clear">Reset quantities</button></p>
+    <p id="gh-status"></p>
   </footer>
 </main>
+
+<dialog id="gh-dialog" aria-labelledby="gh-title">
+  <form id="gh-form" method="dialog" novalidate>
+    <h2 id="gh-title">Connect GitHub</h2>
+    <p>The list of securities is stored in the repository <code id="gh-repo"></code>. To add or remove a security, this page commits the change on your behalf, which needs a GitHub token with write access to that repository.</p>
+    <ol>
+      <li><a id="gh-token-link" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create a fine-grained token</a>. Repository access: only <code id="gh-repo-name"></code>. Permissions: Contents — Read and write.</li>
+      <li>Paste the token below. It is saved in this browser only and sent only to api.github.com.</li>
+    </ol>
+    <label class="label" for="gh-token">Token</label>
+    <input class="field" id="gh-token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…">
+    <p class="msg err" id="gh-err" hidden></p>
+    <div class="actions">
+      <button class="btn" type="button" id="gh-cancel">Cancel</button>
+      <button class="btn primary" type="submit" id="gh-save">Connect</button>
+    </div>
+  </form>
+</dialog>
 
 <script>
 (() => {
   "use strict";
   const DATA_URL = "data/quotes.json";
+  const SYMBOLS_PATH = "site/symbols.json";
   const POLL_MS = 5 * 60 * 1000;
-  const STORE_KEY = "portfolio.qty.v1";
+  const PENDING_POLL_MS = 30 * 1000;
+  const PENDING_TTL_MS = 20 * 60 * 1000;
+  const QTY_KEY = "portfolio.qty.v1";
+  const TOKEN_KEY = "portfolio.ghToken.v1";
+  const PENDING_KEY = "portfolio.pending.v1";
   const SESSIONS = {
     LSE: { tz: "Europe/London", open: 8 * 60, close: 16 * 60 + 30 },
     NYSE: { tz: "America/New_York", open: 9 * 60 + 30, close: 16 * 60 },
   };
   const GRACE_MIN = 20;
+  const SYMBOL_RE = /^[A-Z0-9^][A-Z0-9.\-=^]{0,19}$/;
+
+  // The repository is derived from the Pages address https://<owner>.github.io/<repo>/.
+  const REPO = (() => {
+    const host = location.hostname.match(/^([^.]+)\.github\.io$/i);
+    const first = location.pathname.split("/").filter(Boolean)[0];
+    return host && first ? { owner: host[1], name: first } : { owner: "AveSergey1977", name: "claude" };
+  })();
+  const REPO_SLUG = `${REPO.owner}/${REPO.name}`;
 
   const $ = (id) => document.getElementById(id);
-  const usd = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
-  const num = (v, d = 2) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
+  const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+  const num = (v, d = 2) => new Intl.NumberFormat("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
   const pct = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + num(Math.abs(v), 2) + "%";
   const signedUsd = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + usd.format(Math.abs(v));
   const tone = (v) => (v > 0 ? "up" : v < 0 ? "down" : "");
-  const timeFmt = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
+  const timeFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+  const store = {
+    get(key, fallback) { try { const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); } catch { return fallback; } },
+    set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable */ } },
+    del(key) { try { localStorage.removeItem(key); } catch { /* storage unavailable */ } },
+  };
 
   let data = null;
-  let qty = loadQty();
+  let qty = store.get(QTY_KEY, {});
+  let pending = store.get(PENDING_KEY, { add: {}, remove: {} });
+  let token = store.get(TOKEN_KEY, "");
+  let confirming = null;
+  let pollTimer = null;
 
-  function loadQty() {
-    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { return {}; }
-  }
-  function saveQty() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(qty)); } catch { /* storage unavailable */ }
-  }
+  // Accepts 1234.5, 1,234.5 and a decimal comma (100,5). A lone comma before exactly
+  // three digits (1,000) is read as a thousands separator, as in the English UI.
   function parseQty(s) {
-    const v = parseFloat(String(s).replace(/\s/g, "").replace(",", "."));
+    let t = String(s).replace(/\s/g, "");
+    const decimalComma = !t.includes(".") && /^[^,]*,[^,]*$/.test(t) && !/^[1-9]\d{0,2},\d{3}$/.test(t);
+    t = decimalComma ? t.replace(",", ".") : t.replace(/,/g, "");
+    const v = parseFloat(t);
     return Number.isFinite(v) && v >= 0 ? v : 0;
   }
 
-  // Local minutes-of-day and weekday for a time zone, via Intl.
+  // ---- Market hours -------------------------------------------------------
+
   function localParts(date, tz) {
     const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
       timeZone: tz, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
@@ -288,51 +406,95 @@ footer p { margin: 0; }
       const el = $(k.toLowerCase());
       const open = isOpen(k, now);
       el.dataset.open = String(open);
-      el.lastChild.textContent = `${k} ${open ? "открыта" : "закрыта"}`;
+      el.lastChild.textContent = `${k} ${open ? "open" : "closed"}`;
     }
     const nr = nextRun(now);
-    $("next").textContent = nr ? `Следующее плановое обновление данных: ≈ ${timeFmt.format(nr)}.` : "";
+    $("next").textContent = nr ? `Next scheduled data refresh: about ${timeFmt.format(nr)}.` : "";
+  }
+
+  // ---- Rows ---------------------------------------------------------------
+
+  // Quotes from the feed, minus removals in flight, plus additions still waiting for their first quote.
+  function visibleQuotes() {
+    if (!data) return [];
+    const inFeed = new Set(data.quotes.map((q) => q.symbol));
+    const rows = data.quotes.filter((q) => !pending.remove[q.symbol]);
+    for (const s of Object.keys(pending.add)) if (!inFeed.has(s)) rows.push({ symbol: s, pending: true });
+    return rows;
   }
 
   function buildRows() {
     const tbody = $("rows");
+    const focused = document.activeElement && document.activeElement.id;
+    const caret = focused && document.activeElement.selectionStart;
     tbody.textContent = "";
-    for (const q of data.quotes) {
+    for (const q of visibleQuotes()) {
       const tr = document.createElement("tr");
       tr.dataset.symbol = q.symbol;
       const id = "qty-" + q.symbol.replace(/[^A-Za-z0-9]/g, "_");
       const price = q.price != null
-        ? `<span class="num">${num(q.price, 2)}</span><span class="cur">${q.currency}</span>` : "—";
+        ? `<span class="num">${num(q.price, 2)}</span><span class="cur">${esc(q.currency)}</span>` : "—";
       const chg = q.change_pct != null ? `<span class="num ${tone(q.change_pct)}">${pct(q.change_pct)}</span>` : "—";
       const pUsd = q.price_usd != null ? `<span class="num">${usd.format(q.price_usd)}</span>` : "—";
+      let badge = "";
+      if (q.pending) badge = '<span class="badge info">pending</span>';
+      else if (q.price == null) badge = '<span class="badge" title="Yahoo Finance returned no data for this ticker">no data</span>';
+      else if (q.stale) badge = '<span class="badge" title="Last successful quote; the latest refresh could not fetch this security">stale</span>';
+      const sub = q.pending ? "Added. Waiting for the first quote (1–2 min)."
+        : [q.name !== q.symbol ? q.name : "", q.exchange].filter(Boolean).join(" · ");
+      const confirm = confirming === q.symbol
+        ? `<div class="confirm" role="group" aria-label="Confirm removal">Remove ${esc(q.symbol)} from the portfolio?
+             <button type="button" class="btn small danger" data-act="remove-yes">Remove</button>
+             <button type="button" class="btn small" data-act="remove-no">Keep</button></div>` : "";
       tr.innerHTML = `
-        <td class="c-sym"><span class="sym"></span>${q.stale ? '<span class="badge" title="Последняя успешная котировка; при последнем обновлении получить данные не удалось">устар.</span>' : ""}
-          <div class="name"></div></td>
-        <td class="c-price" data-k="Цена">${price}</td>
-        <td class="c-chg" data-k="За день">${chg}</td>
-        <td class="c-usd" data-k="Цена, USD">${pUsd}</td>
-        <td class="c-qty" data-k="Количество">
-          <input class="qty" id="${id}" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Количество ${q.symbol}"></td>
-        <td class="c-val num" data-k="Стоимость, USD">—</td>
-        <td class="c-share num" data-k="Доля"><span class="v">—</span><span class="share-bar"><i style="width:0"></i></span></td>`;
-      tr.querySelector(".sym").textContent = q.symbol;
-      tr.querySelector(".name").textContent = [q.name !== q.symbol ? q.name : "", q.exchange].filter(Boolean).join(" · ");
+        <td class="c-sym"><div class="sym-line"><span class="sym">${esc(q.symbol)}</span>${badge}
+          <button type="button" class="icon-btn" data-act="remove" aria-label="Remove ${esc(q.symbol)}" title="Remove ${esc(q.symbol)}">×</button></div>
+          <div class="name">${esc(sub)}</div>${confirm}</td>
+        <td class="c-price" data-k="Price">${price}</td>
+        <td class="c-chg" data-k="Day">${chg}</td>
+        <td class="c-usd" data-k="Price, USD">${pUsd}</td>
+        <td class="c-qty" data-k="Quantity">
+          <input class="qty" id="${id}" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Quantity of ${esc(q.symbol)}"></td>
+        <td class="c-val num" data-k="Value, USD">—</td>
+        <td class="c-share num" data-k="Weight"><span class="v">—</span><span class="share-bar"><i style="width:0"></i></span></td>`;
       const input = tr.querySelector("input");
-      if (qty[q.symbol]) input.value = String(qty[q.symbol]).replace(".", ",");
+      if (qty[q.symbol]) input.value = String(qty[q.symbol]);
       input.addEventListener("input", () => {
         const v = parseQty(input.value);
         if (v) qty[q.symbol] = v; else delete qty[q.symbol];
-        saveQty();
+        store.set(QTY_KEY, qty);
         renderTotals();
       });
       tbody.appendChild(tr);
     }
+    // Keep focus and caret when a poll re-renders the table while someone is typing.
+    if (focused) {
+      const el = $(focused);
+      if (el) { el.focus(); try { el.setSelectionRange(caret, caret); } catch { /* not a text field */ } }
+    }
+  }
+
+  $("rows").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const symbol = btn.closest("tr").dataset.symbol;
+    const act = btn.dataset.act;
+    if (act === "remove") { confirming = symbol; buildRows(); renderTotals(); focusIn(symbol, '[data-act="remove-no"]'); }
+    else if (act === "remove-no") { confirming = null; buildRows(); renderTotals(); focusIn(symbol, '[data-act="remove"]'); }
+    else if (act === "remove-yes") removeSymbol(symbol);
+  });
+  function focusIn(symbol, selector) {
+    const tr = [...$("rows").children].find((r) => r.dataset.symbol === symbol);
+    const el = tr && tr.querySelector(selector);
+    if (el) el.focus();
   }
 
   function renderTotals() {
-    let total = 0, day = 0, prevTotal = 0, held = 0, missing = [];
+    let total = 0, day = 0, prevTotal = 0, held = 0;
+    const missing = [];
     const values = {};
-    for (const q of data.quotes) {
+    const rows = visibleQuotes();
+    for (const q of rows) {
       const n = qty[q.symbol] || 0;
       if (!n) continue;
       held++;
@@ -347,8 +509,7 @@ footer p { margin: 0; }
       }
     }
     for (const tr of $("rows").children) {
-      const s = tr.dataset.symbol;
-      const v = values[s];
+      const v = values[tr.dataset.symbol];
       tr.querySelector(".c-val").textContent = v != null ? usd.format(v) : "—";
       const share = v != null && total > 0 ? (v / total) * 100 : null;
       tr.querySelector(".c-share .v").textContent = share != null ? num(share, 1) + "%" : "—";
@@ -357,8 +518,8 @@ footer p { margin: 0; }
     $("total").textContent = held ? usd.format(total) : "—";
     $("total-foot").textContent = held ? usd.format(total) : "—";
     $("positions").textContent = held
-      ? `${held} ${plural(held, ["позиция", "позиции", "позиций"])}` + (missing.length ? ` · без цены: ${missing.join(", ")}` : "")
-      : "Укажите количество бумаг в таблице";
+      ? `${held} position${held === 1 ? "" : "s"}` + (missing.length ? ` · no price: ${missing.join(", ")}` : "")
+      : "Enter quantities in the table";
     const dayEl = $("day");
     if (held && prevTotal) {
       dayEl.innerHTML = `<span class="${tone(day)}">${signedUsd(day)}</span> <span class="${tone(day)}" style="font-size:.85em">${pct((day / prevTotal) * 100)}</span>`;
@@ -367,67 +528,270 @@ footer p { margin: 0; }
     }
   }
 
-  function plural(n, forms) {
-    const m10 = n % 10, m100 = n % 100;
-    return forms[m10 === 1 && m100 !== 11 ? 0 : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? 1 : 2];
-  }
-
   function renderMeta() {
     const gen = new Date(data.generated_at);
     const ageH = (Date.now() - gen) / 36e5;
-    $("updated").textContent = `Данные на ${timeFmt.format(gen)}`;
-    const gbp = data.fx && data.fx.GBP;
-    $("fx").textContent = gbp ? num(gbp.rate, 4) : "—";
-    $("fx-src").textContent = gbp ? gbp.source + (gbp.stale ? " · устар." : "") : "";
+    $("updated").textContent = `Data as of ${timeFmt.format(gen)}`;
+    const fx = Object.entries(data.fx || {}).filter(([cur]) => cur !== "USD");
+    $("fx").textContent = fx.length ? fx.map(([cur, f]) => `${cur} ${num(f.rate, 4)}`).join(" · ") : "—";
+    $("fx-src").textContent = fx.length ? [...new Set(fx.map(([, f]) => f.source + (f.stale ? " (stale)" : "")))].join(", ") : "";
     const notes = [];
-    if (ageH > 7) notes.push(`Данные не обновлялись ${Math.floor(ageH)} ч. Проверьте запуски workflow «Quotes» в GitHub Actions.`);
-    const stale = data.quotes.filter((q) => q.stale).map((q) => q.symbol);
-    if (stale.length) notes.push(`Не удалось обновить: ${stale.join(", ")} — показана последняя полученная цена.`);
+    if (ageH > 7) {
+      notes.push(`Data has not been refreshed for ${Math.floor(ageH)} h. Check the <a href="https://github.com/${esc(REPO_SLUG)}/actions/workflows/quotes.yml" target="_blank" rel="noopener">Quotes workflow runs</a> in GitHub Actions.`);
+    }
+    const stale = data.quotes.filter((q) => q.stale && q.price != null).map((q) => q.symbol);
+    if (stale.length) notes.push(`Could not refresh ${esc(stale.join(", "))}; showing the last quote received.`);
+    const missing = data.quotes.filter((q) => q.price == null).map((q) => q.symbol);
+    if (missing.length) notes.push(`No data for ${esc(missing.join(", "))}. Check that the ticker matches Yahoo Finance, or remove it.`);
     $("notice").hidden = !notes.length;
-    $("notice").textContent = notes.join(" ");
+    $("notice").innerHTML = notes.join(" ");
   }
+
+  // ---- Pending edits ------------------------------------------------------
+
+  function reconcilePending() {
+    const inFeed = new Set(data.quotes.map((q) => q.symbol));
+    const now = Date.now();
+    for (const s of Object.keys(pending.add)) if (inFeed.has(s) || now - pending.add[s] > PENDING_TTL_MS) delete pending.add[s];
+    for (const s of Object.keys(pending.remove)) if (!inFeed.has(s) || now - pending.remove[s] > PENDING_TTL_MS) delete pending.remove[s];
+    store.set(PENDING_KEY, pending);
+  }
+  const hasPending = () => Object.keys(pending.add).length + Object.keys(pending.remove).length > 0;
+
+  function schedulePoll() {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(load, hasPending() ? PENDING_POLL_MS : POLL_MS);
+  }
+
+  // ---- Data load ----------------------------------------------------------
 
   async function load() {
     try {
       const res = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const next = await res.json();
-      const first = !data;
-      const changedSet = !data || next.quotes.map((q) => q.symbol).join() !== data.quotes.map((q) => q.symbol).join();
-      data = next;
-      if (first || changedSet) buildRows(); else refreshRows();
+      data = await res.json();
+      reconcilePending();
+      buildRows();
       renderMeta();
       renderTotals();
     } catch (e) {
       if (!data) {
-        $("updated").textContent = "Нет данных";
+        $("updated").textContent = "No data";
         $("notice").hidden = false;
-        $("notice").textContent = `Не удалось загрузить котировки (${e.message}). Файл data/quotes.json создаётся workflow «Quotes» при первом запуске.`;
+        $("notice").textContent = `Could not load quotes (${e.message}). The Quotes workflow creates data/quotes.json on its first run.`;
       }
     }
     renderStatus();
+    schedulePoll();
   }
 
-  // Re-render quote cells without recreating inputs, so focus and typing survive a poll.
-  function refreshRows() {
-    const focused = document.activeElement && document.activeElement.id;
-    const caret = focused && document.activeElement.selectionStart;
-    buildRows();
-    if (focused) {
-      const el = $(focused);
-      if (el) { el.focus(); try { el.setSelectionRange(caret, caret); } catch { /* not a text field */ } }
+  // ---- GitHub: edit the symbol list --------------------------------------
+
+  async function gh(path, opts = {}) {
+    const res = await fetch(`https://api.github.com${path}`, {
+      ...opts,
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${opts.token || token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        ...(opts.body ? { "Content-Type": "application/json" } : {}),
+      },
+    });
+    if (!res.ok) {
+      let msg = "";
+      try { msg = (await res.json()).message || ""; } catch { /* no body */ }
+      const err = new Error(msg || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  }
+
+  async function checkToken(t) {
+    const repo = await gh(`/repos/${REPO_SLUG}`, { token: t });
+    if (!repo.permissions || !repo.permissions.push) throw new Error(`This token cannot write to ${REPO_SLUG}. Give it Contents: Read and write.`);
+    return repo.default_branch;
+  }
+
+  const b64encode = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+  const b64decode = (s) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, "")), (c) => c.charCodeAt(0)));
+
+  // Read symbols.json, apply `change`, commit. One retry if someone else committed in between.
+  async function editSymbols(change, message) {
+    const branch = await checkToken(token);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const file = await gh(`/repos/${REPO_SLUG}/contents/${SYMBOLS_PATH}?ref=${encodeURIComponent(branch)}`);
+      const list = JSON.parse(b64decode(file.content));
+      const next = change(list);
+      if (!next) return false;
+      try {
+        await gh(`/repos/${REPO_SLUG}/contents/${SYMBOLS_PATH}`, {
+          method: "PUT",
+          body: JSON.stringify({ message, content: b64encode(JSON.stringify(next, null, 2) + "\n"), sha: file.sha, branch }),
+        });
+        return true;
+      } catch (e) {
+        if (e.status !== 409 || attempt) throw e;
+      }
+    }
+    return false;
+  }
+
+  function explain(e) {
+    if (e.status === 401) return "GitHub rejected the token. Connect GitHub again with a valid token.";
+    if (e.status === 403 || e.status === 404) return `GitHub refused the change (${e.message}). Check that the token has Contents: Read and write on ${REPO_SLUG}.`;
+    if (e instanceof TypeError) return "Could not reach GitHub. Check your connection and try again.";
+    return e.message;
+  }
+
+  function setMsg(text, isError = false) {
+    const el = $("add-msg");
+    el.textContent = text;
+    el.classList.toggle("err", isError);
+    el.classList.toggle("muted", !isError);
+  }
+
+  // Runs `action` once a token is available, asking for one first if needed.
+  function withToken(action) {
+    if (token) return action();
+    openDialog(action);
+  }
+
+  $("add-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const symbol = $("add-symbol").value.trim().toUpperCase();
+    if (!symbol) { setMsg("Enter a ticker first.", true); return; }
+    if (!SYMBOL_RE.test(symbol)) { setMsg(`"${symbol}" does not look like a Yahoo Finance ticker. Use letters, digits and . - = ^ only.`, true); return; }
+    if (visibleQuotes().some((q) => q.symbol === symbol)) { setMsg(`${symbol} is already in the portfolio.`, true); return; }
+    withToken(() => addSymbol(symbol));
+  });
+
+  async function addSymbol(symbol) {
+    const btn = $("add-btn");
+    btn.disabled = true;
+    setMsg(`Adding ${symbol}…`);
+    try {
+      const changed = await editSymbols(
+        (list) => (list.includes(symbol) ? null : [...list, symbol]),
+        `Add ${symbol} to Moot Portfolio`,
+      );
+      delete pending.remove[symbol];
+      pending.add[symbol] = Date.now();
+      store.set(PENDING_KEY, pending);
+      $("add-symbol").value = "";
+      setMsg(changed
+        ? `${symbol} added. The first quote should appear in 1–2 minutes.`
+        : `${symbol} is already in the list; waiting for its quote.`);
+      buildRows(); renderTotals(); schedulePoll();
+    } catch (e) {
+      if (e.status === 401) forgetToken();
+      setMsg(`Could not add ${symbol}. ${explain(e)}`, true);
+    } finally {
+      btn.disabled = false;
     }
   }
 
+  function removeSymbol(symbol) {
+    withToken(async () => {
+      for (const b of document.querySelectorAll('[data-act="remove-yes"]')) b.disabled = true;
+      try {
+        await editSymbols(
+          (list) => (list.includes(symbol) ? list.filter((s) => s !== symbol) : null),
+          `Remove ${symbol} from Moot Portfolio`,
+        );
+        delete pending.add[symbol];
+        if (data && data.quotes.some((q) => q.symbol === symbol)) pending.remove[symbol] = Date.now();
+        store.set(PENDING_KEY, pending);
+        delete qty[symbol];
+        store.set(QTY_KEY, qty);
+        confirming = null;
+        setMsg(`${symbol} removed.`);
+        buildRows(); renderTotals(); schedulePoll();
+      } catch (e) {
+        if (e.status === 401) forgetToken();
+        confirming = null;
+        buildRows(); renderTotals();
+        setMsg(`Could not remove ${symbol}. ${explain(e)}`, true);
+      }
+    });
+  }
+
+  // ---- GitHub connect dialog ----------------------------------------------
+
+  let afterConnect = null;
+  const dialog = $("gh-dialog");
+  $("gh-repo").textContent = REPO_SLUG;
+  $("gh-repo-name").textContent = REPO.name;
+  $("gh-token-link").href = "https://github.com/settings/personal-access-tokens/new?" + new URLSearchParams({
+    name: "Moot Portfolio", description: "Edit the Moot Portfolio security list",
+    target_name: REPO.owner, expires_in: "90", contents: "write",
+  });
+
+  function openDialog(action) {
+    afterConnect = action;
+    $("gh-err").hidden = true;
+    $("gh-token").value = "";
+    if (typeof dialog.showModal === "function") dialog.showModal(); else dialog.setAttribute("open", "");
+    $("gh-token").focus();
+  }
+  function closeDialog() {
+    if (typeof dialog.close === "function") dialog.close(); else dialog.removeAttribute("open");
+  }
+  $("gh-cancel").addEventListener("click", () => { afterConnect = null; closeDialog(); setMsg("GitHub is not connected, so the list was not changed.", true); });
+  $("gh-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const t = $("gh-token").value.trim();
+    const err = $("gh-err");
+    if (!t) { err.textContent = "Paste a token first."; err.hidden = false; return; }
+    $("gh-save").disabled = true;
+    try {
+      await checkToken(t);
+      token = t;
+      store.set(TOKEN_KEY, token);
+      renderGhStatus();
+      closeDialog();
+      const action = afterConnect;
+      afterConnect = null;
+      if (action) action();
+    } catch (ex) {
+      err.textContent = ex.status === 401 ? "GitHub rejected this token. Check that it was copied in full."
+        : ex instanceof TypeError ? "Could not reach GitHub. Check your connection and try again." : ex.message;
+      err.hidden = false;
+    } finally {
+      $("gh-save").disabled = false;
+    }
+  });
+
+  function forgetToken() {
+    token = "";
+    store.del(TOKEN_KEY);
+    renderGhStatus();
+  }
+  function renderGhStatus() {
+    const el = $("gh-status");
+    el.textContent = "";
+    if (!token) {
+      el.append("Adding or removing securities asks for a GitHub token the first time.");
+      return;
+    }
+    el.append(`GitHub connected: edits are committed to ${REPO_SLUG}. `);
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "link"; b.textContent = "Disconnect";
+    b.addEventListener("click", () => { forgetToken(); setMsg("GitHub disconnected. The token was removed from this browser."); });
+    el.append(b);
+  }
+
+  // ---- Boot ---------------------------------------------------------------
+
   $("clear").addEventListener("click", () => {
     qty = {};
-    saveQty();
+    store.set(QTY_KEY, qty);
     for (const i of document.querySelectorAll(".qty")) i.value = "";
     if (data) renderTotals();
   });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
-  setInterval(load, POLL_MS);
   setInterval(renderStatus, 60 * 1000);
+  renderGhStatus();
   load();
 })();
 </script>

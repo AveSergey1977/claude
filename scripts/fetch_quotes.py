@@ -20,6 +20,7 @@ import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 try:
@@ -27,7 +28,20 @@ try:
 except ImportError:  # local runs without the dependency fall back to urllib
     cffi_requests = None
 
-SYMBOLS = ["GOOG", "AAPL", "NVDA", "MO", "VUSA.L", "UDVD.L"]
+# The portfolio's symbol list. The page edits this file through the GitHub API
+# when a security is added or removed; the commit triggers a fresh fetch.
+SYMBOLS_FILE = Path(__file__).resolve().parent.parent / "site" / "symbols.json"
+
+
+def load_symbols(path: Path = SYMBOLS_FILE) -> list[str]:
+    symbols = json.loads(path.read_text())
+    seen, out = set(), []
+    for s in symbols:
+        s = str(s).strip().upper()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
 
 # Regular sessions (local time). Exchange holidays are not modelled: on a holiday
 # the 15-minute schedule simply re-fetches unchanged prices.
@@ -165,18 +179,20 @@ def load_previous(url: str | None) -> dict:
         return {}
 
 
-def build_snapshot(now: datetime, prev: dict, fetch_meta=yahoo_chart, fetch_fx=fx_to_usd) -> dict:
+def build_snapshot(now: datetime, prev: dict, symbols: list[str],
+                   fetch_meta=yahoo_chart, fetch_fx=fx_to_usd) -> dict:
     prev_quotes = {q["symbol"]: q for q in prev.get("quotes", [])}
     prev_fx = prev.get("fx", {})
     quotes, errors = [], []
-    for sym in SYMBOLS:
+    for sym in symbols:
         try:
             q = parse_quote(sym, fetch_meta(sym))
             q["stale"] = False
         except Exception as e:
             errors.append(f"{sym}: {e}")
             if sym not in prev_quotes:
-                quotes.append({"symbol": sym, "name": sym, "price": None, "currency": None, "stale": True})
+                quotes.append({"symbol": sym, "name": sym, "price": None, "currency": None,
+                               "stale": True, "error": str(e)[:200]})
                 continue
             q = dict(prev_quotes[sym], stale=True)
         quotes.append(q)
@@ -223,17 +239,18 @@ def main() -> int:
                 fh.write(f"run={str(run).lower()}\n")
         return 0
 
-    snap = build_snapshot(now, load_previous(args.prev_url))
+    symbols = load_symbols()
+    snap = build_snapshot(now, load_previous(args.prev_url), symbols)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w") as fh:
         json.dump(snap, fh, ensure_ascii=False, indent=1)
     for e in snap["errors"]:
         print(f"warn: {e}", file=sys.stderr)
-    lines = ["| Тикер | Цена | Валюта | Изм., % | Цена, USD | Статус |", "|---|---:|---|---:|---:|---|"]
+    lines = ["| Symbol | Price | Currency | Day, % | Price, USD | Status |", "|---|---:|---|---:|---:|---|"]
     for q in snap["quotes"]:
         fmt = lambda v, d=2: "—" if v is None else f"{v:,.{d}f}"
         lines.append(f"| {q['symbol']} | {fmt(q.get('price'))} | {q.get('currency') or '—'} | "
-                     f"{fmt(q.get('change_pct'))} | {fmt(q.get('price_usd'))} | {'устар.' if q['stale'] else 'ok'} |")
+                     f"{fmt(q.get('change_pct'))} | {fmt(q.get('price_usd'))} | {'stale' if q['stale'] else 'ok'} |")
     for cur, fx in (i for i in snap["fx"].items() if i[0] != "USD"):
         lines.append(f"\n{cur}/USD = {fx['rate']:.4f} ({fx.get('source')})")
     print("\n".join(lines))
@@ -241,7 +258,7 @@ def main() -> int:
         with open(summary, "a") as fh:
             fh.write("\n".join(lines) + "\n")
     fresh = sum(1 for q in snap["quotes"] if not q["stale"])
-    print(f"wrote {args.out}: {fresh}/{len(SYMBOLS)} fresh quotes")
+    print(f"wrote {args.out}: {fresh}/{len(symbols)} fresh quotes")
     # Fail the run only if nothing at all could be fetched, so a partial outage
     # still publishes the rest and marks the gaps as stale.
     return 0 if fresh else 1
