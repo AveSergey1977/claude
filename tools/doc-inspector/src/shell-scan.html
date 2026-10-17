@@ -1,6 +1,6 @@
-<title>Инспектор документов</title>
+<title>Сканер скрытого содержимого</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Поиск скрытого содержимого в TXT, DOC, DOCX, RTF и PDF и проверка юридического перевода. Файлы обрабатываются в браузере.">
+<meta name="description" content="Поиск скрытого текста, инструкций для ИИ, исправлений и активного содержимого в TXT, DOC, DOCX, RTF и PDF. Файлы обрабатываются в браузере.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap">
@@ -11,13 +11,9 @@
 <header class="band">
   <div class="wrap">
     <div class="brand">
-      <h1>инспектор документов</h1>
+      <h1>сканер скрытого содержимого</h1>
       <p>Файлы читаются и проверяются в этом браузере. Ни файлы, ни их текст никуда не отправляются.</p>
     </div>
-    <nav class="tabs" role="tablist" aria-label="Инструменты">
-      <button class="tab" role="tab" id="tab-scan" aria-controls="panel-scan" aria-selected="true">скрытое содержимое</button>
-      <button class="tab" role="tab" id="tab-translate" aria-controls="panel-translate" aria-selected="false">проверка перевода</button>
-    </nav>
   </div>
 </header>
 
@@ -25,7 +21,7 @@
   <div class="wrap">
     <div id="libwarn" class="banner" hidden></div>
 
-    <section class="panel" id="panel-scan" role="tabpanel" aria-labelledby="tab-scan">
+    <section class="panel" id="panel-scan">
       <div class="intro">
         <div class="drop" id="drop">
           <strong>Перетащите сюда файлы для проверки</strong>
@@ -78,60 +74,20 @@
       <div class="reports" id="reports"></div>
     </section>
 
-    <section class="panel" id="panel-translate" role="tabpanel" aria-labelledby="tab-translate" hidden>
-      <div class="pair">
-        <div class="side" data-side="src">
-          <div class="side-head">
-            <h2>оригинал</h2>
-            <div class="row">
-              <select id="src-lang" aria-label="Язык оригинала"><option value="auto">язык: авто</option><option value="ru">русский</option><option value="en">английский</option><option value="lt">литовский</option></select>
-              <label class="btn small" for="src-file">файл</label>
-              <input type="file" id="src-file" hidden accept=".txt,.doc,.docx,.docm,.rtf,.pdf,.htm,.html">
-            </div>
-          </div>
-          <textarea id="src-text" spellcheck="false" aria-label="Текст оригинала" placeholder="Вставьте текст оригинала: один абзац на строку. Или загрузите файл."></textarea>
-          <div class="fileinfo" id="src-info"></div>
-        </div>
-        <div class="side" data-side="tgt">
-          <div class="side-head">
-            <h2>перевод</h2>
-            <div class="row">
-              <select id="tgt-lang" aria-label="Язык перевода"><option value="auto">язык: авто</option><option value="ru">русский</option><option value="en">английский</option><option value="lt">литовский</option></select>
-              <label class="btn small" for="tgt-file">файл</label>
-              <input type="file" id="tgt-file" hidden accept=".txt,.doc,.docx,.docm,.rtf,.pdf,.htm,.html">
-            </div>
-          </div>
-          <textarea id="tgt-text" spellcheck="false" aria-label="Текст перевода" placeholder="Вставьте текст перевода: один абзац на строку. Или загрузите файл."></textarea>
-          <div class="fileinfo" id="tgt-info"></div>
-        </div>
-      </div>
-
-      <details class="settings gloss" id="gloss">
-        <summary>глоссарий терминов</summary>
-        <div style="padding-bottom:16px;display:grid;gap:8px">
-          <span class="muted small">Одна пара на строку: <code>термин оригинала = перевод | допустимый вариант | !нежелательный вариант</code>. Окончания русских и литовских слов учитываются автоматически. Глоссарий сохраняется только в этом браузере.</span>
-          <textarea id="gloss-text" spellcheck="false" aria-label="Глоссарий"></textarea>
-        </div>
-      </details>
-
-      <div class="row">
-        <button class="btn primary" id="tr-run" type="button">проверить перевод</button>
-        <button class="btn ghost" id="tr-sample" type="button">загрузить пример</button>
-        <button class="btn ghost" id="tr-clear" type="button">очистить</button>
-        <span class="status" id="tr-status" aria-live="polite"></span>
-      </div>
-      <div id="tr-result"></div>
-    </section>
   </div>
 </main>
 
 <footer>
   <div class="wrap">
-    <span>Отчёт показывает признаки, которые требуют внимания юриста. Это не заключение о подлинности документа. Отсутствие замечаний означает только, что перечисленные проверки ничего не нашли.</span>
+    <span>Отчёт показывает признаки, которые требуют внимания юриста. Это не заключение о подлинности документа или качестве перевода. Отсутствие замечаний означает только, что перечисленные проверки ничего не нашли.</span>
+    <span>Второй инструмент: <span id="other-app" data-key="translator" data-label="сверка юридического перевода">сверка юридического перевода</span>.</span>
     <span id="lib-versions"></span>
   </div>
 </footer>
 
+<script>
+//@LINKS
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>

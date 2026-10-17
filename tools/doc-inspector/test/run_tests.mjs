@@ -1,6 +1,6 @@
 // Loads dist/index.html in Chromium, scans every fixture and checks that planted
 // problems are reported and clean controls are not.
-// Usage: node test/run_tests.mjs <node_modules dir with pdfjs-dist and jszip> [--shots <dir>]
+// Usage (loads dist/scanner.html and dist/translator.html): node test/run_tests.mjs <node_modules dir with pdfjs-dist and jszip> [--shots <dir>]
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -14,11 +14,11 @@ const shots = shotsIdx > 0 ? process.argv[shotsIdx + 1] : null;
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || 'playwright');
 
-const page = readFileSync(join(here, '..', 'dist', 'index.html'), 'utf8');
-// The artifact host wraps the page in this skeleton.
-const wrapped = `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body>${page}</body></html>`;
+// The artifact host wraps each page in this skeleton.
+const wrap = (name) => `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body>${readFileSync(join(here, '..', 'dist', name + '.html'), 'utf8')}</body></html>`;
 const server = createServer((req, res) => {
-  if (req.url === '/' || req.url.startsWith('/?')) { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(wrapped); }
+  const app = /^\/(scanner|translator)$/.exec(req.url);
+  if (app) { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(wrap(app[1])); }
   const f = join(here, 'fixtures', decodeURIComponent(req.url.replace(/^\/fixtures\//, '')));
   if (req.url.startsWith('/fixtures/') && existsSync(f)) { res.writeHead(200); return res.end(readFileSync(f)); }
   res.writeHead(404); res.end();
@@ -44,9 +44,17 @@ const pg = await ctx.newPage();
 const errors = [];
 pg.on('pageerror', (e) => errors.push(String(e)));
 pg.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-await pg.goto(base + '/');
-await pg.waitForSelector('#reports .report', { timeout: 30000, state: 'attached' });
-await pg.waitForSelector('#tr-result .report', { timeout: 30000, state: 'attached' });
+let pass = 0, fail = 0;
+const check = (file, label, ok) => { if (ok) pass++; else fail++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${file}: ${label}`); };
+await pg.goto(base + '/scanner');
+await pg.waitForSelector('#reports .report', { timeout: 30000 });
+check('scanner', 'translation UI absent', (await pg.locator('#tr-result').count()) === 0);
+const tp = await ctx.newPage();
+tp.on('pageerror', (e) => errors.push('translator: ' + String(e)));
+tp.on('console', (m) => { if (m.type() === 'error') errors.push('translator: ' + m.text()); });
+await tp.goto(base + '/translator');
+await tp.waitForSelector('#tr-result .report', { timeout: 30000 });
+check('translator', 'scanner UI absent', (await tp.locator('#reports').count()) === 0);
 
 const scan = (name) => pg.evaluate(async (name) => {
   const buf = await (await fetch('/fixtures/' + name)).arrayBuffer();
@@ -55,8 +63,6 @@ const scan = (name) => pg.evaluate(async (name) => {
   return { kind: r.kind, meta: r.rep.meta, notes: r.rep.notes, findings: r.rep.findings.map((f) => ({ sev: f.sev, cat: f.cat, title: f.title, loc: f.loc, text: (f.excerpt || '') + ' ' + strip(f.excerptHtml) + ' ' + (f.list || []).join(' ') + ' ' + f.detail })) };
 }, name);
 
-let pass = 0, fail = 0;
-const check = (file, label, ok) => { if (ok) pass++; else fail++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${file}: ${label}`); };
 const has = (r, title, needle, sev) => r.findings.some((f) => f.title.startsWith(title) && (!needle || f.text.includes(needle)) && (!sev || f.sev === sev));
 const anyHidden = (r, needle) => r.findings.some((f) => (f.cat === 'hidden') && f.text.includes(needle));
 
@@ -137,36 +143,35 @@ check('numbered.docx', `Word auto-numbering labels (${labels.map((l) => l[0]).jo
 await pg.setInputFiles('#scan-input', [join(here, 'fixtures', 'planted.pdf')]);
 await pg.waitForFunction(() => document.querySelectorAll('#reports .report').length >= 2, null, { timeout: 30000 });
 check('ui', 'report rendered for uploaded file', await pg.locator('#reports .report h3', { hasText: 'planted.pdf' }).count() === 1);
-const trCounts = await pg.evaluate(() => document.querySelector('#tr-result .counts').textContent.replace(/\s+/g, ' '));
+const trCounts = await tp.evaluate(() => document.querySelector('#tr-result .counts').textContent.replace(/\s+/g, ' '));
 check('ui', `translation sample shows issues (${trCounts.trim()})`, /критично [1-9]/.test(trCounts));
-await pg.click('#tab-translate');
-await pg.setInputFiles('#src-file', [join(here, 'fixtures', 'planted.docx')]);
-await pg.waitForFunction(() => /абзацев/.test(document.querySelector('#src-info').textContent), null, { timeout: 30000 });
-const srcVal = await pg.inputValue('#src-text');
+await tp.setInputFiles('#src-file', [join(here, 'fixtures', 'planted.docx')]);
+await tp.waitForFunction(() => /абзацев/.test(document.querySelector('#src-info').textContent), null, { timeout: 30000 });
+const srcVal = await tp.inputValue('#src-text');
+check('translator', 'hidden-content warning for loaded file', /критичных замечаний [1-9]/.test(await tp.textContent('#src-info')));
 check('ui', 'DOCX loaded into translation tab without hidden text', srcVal.includes('Предмет договора') && !srcVal.includes('СКРЫТО-АТРИБУТ'));
 
 if (shots) {
   mkdirSync(shots, { recursive: true });
   await pg.reload();
-  await pg.waitForSelector('#reports .report', { state: 'attached' });
+  await pg.waitForSelector('#reports .report');
   for (const [w, h, name] of [[1280, 900, 'desktop'], [390, 844, 'phone']]) {
     for (const scheme of ['light', 'dark']) {
-      await pg.setViewportSize({ width: w, height: h });
-      await pg.emulateMedia({ colorScheme: scheme });
-      await pg.click('#tab-scan');
-      await pg.screenshot({ path: join(shots, `scan-${name}-${scheme}.png`), fullPage: false });
-      await pg.click('#tab-translate');
-      await pg.screenshot({ path: join(shots, `tr-${name}-${scheme}.png`), fullPage: false });
-      const overflow = await pg.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      check('ui', `${name} ${scheme}: no horizontal page scroll (${overflow}px)`, overflow <= 0);
+      for (const [p, key] of [[pg, 'scan'], [tp, 'tr']]) {
+        await p.setViewportSize({ width: w, height: h });
+        await p.emulateMedia({ colorScheme: scheme });
+        await p.waitForTimeout(400); // let colour transitions finish
+        await p.screenshot({ path: join(shots, `${key}-${name}-${scheme}.png`), fullPage: false });
+        const overflow = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        check('ui', `${key} ${name} ${scheme}: no horizontal page scroll (${overflow}px)`, overflow <= 0);
+      }
     }
   }
-  await pg.setViewportSize({ width: 1280, height: 900 });
-  await pg.emulateMedia({ colorScheme: 'light' });
-  await pg.click('#tab-scan');
-  await pg.screenshot({ path: join(shots, 'scan-full.png'), fullPage: true });
-  await pg.click('#tab-translate');
-  await pg.screenshot({ path: join(shots, 'tr-full.png'), fullPage: true });
+  for (const [p, key] of [[pg, 'scan'], [tp, 'tr']]) {
+    await p.setViewportSize({ width: 1280, height: 900 });
+    await p.emulateMedia({ colorScheme: 'light' });
+    await p.screenshot({ path: join(shots, `${key}-full.png`), fullPage: true });
+  }
 }
 
 check('page', `no script errors${errors.length ? ': ' + errors.join(' | ') : ''}`, errors.length === 0);
