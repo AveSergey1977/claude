@@ -1,12 +1,13 @@
 name: Quotes
 
-# Cron runs in UTC. The trading-hours window 07:00–21:45 UTC covers the LSE open
-# (08:00 London, BST/GMT) through the NYSE close (16:00 New York, EDT/EST);
-# scripts/fetch_quotes.py gate decides against the real session times.
+# GitHub runs schedules on a best-effort basis and drops or delays many of them
+# (in October roughly one 15-minute slot in four actually ran). So the workflow
+# fires every 5 minutes and `scripts/fetch_quotes.py gate` refreshes only when the
+# published data is due: older than 15 min while LSE or NYSE is open, older than
+# 6 h otherwise. A dropped run is made up by the next one that does fire.
 on:
   schedule:
-    - cron: "*/15 7-21 * * 1-5"   # every 15 min while LSE or NYSE is open
-    - cron: "0 */6 * * *"         # every 6 h otherwise (must match OFF_HOURS_CRON)
+    - cron: "*/5 * * * *"
   workflow_dispatch:
   push:
     # Deploys to github-pages are allowed only from the default branch.
@@ -44,8 +45,9 @@ jobs:
       - id: gate
         env:
           EVENT: ${{ github.event_name }}
-          SCHEDULE: ${{ github.event.schedule }}
-        run: python scripts/fetch_quotes.py gate
+        run: >
+          python scripts/fetch_quotes.py gate
+          --data-url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/quotes.json?t=${{ github.run_id }}"
 
       - id: pages
         if: steps.gate.outputs.run == 'true'

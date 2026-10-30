@@ -290,7 +290,7 @@ dialog .field { width: 100%; }
 
   <footer>
     <p id="next">&nbsp;</p>
-    <p>Quotes refresh every 15 minutes while the LSE (08:00–16:30 London) or NYSE (09:30–16:00 New York) is open, and every 6 hours otherwise. Exchange holidays are not taken into account. Source: Yahoo Finance; quotes may be delayed by 15–20 minutes, and GitHub Actions may start scheduled runs a few minutes late.</p>
+    <p>Quotes refresh every 15 minutes while the LSE (08:00–16:30 London) or NYSE (09:30–16:00 New York) is open, and every 6 hours otherwise. Exchange holidays are not taken into account. Source: Yahoo Finance; quotes may be delayed by 15–20 minutes. GitHub Actions starts scheduled runs on a best-effort basis and sometimes skips them; Refresh now starts one immediately.</p>
     <p>USD values use the current FX rate. Quantities are stored in this browser only. <button type="button" class="link" id="clear">Reset quantities</button></p>
     <p id="gh-status"></p>
   </footer>
@@ -299,9 +299,9 @@ dialog .field { width: 100%; }
 <dialog id="gh-dialog" aria-labelledby="gh-title">
   <form id="gh-form" method="dialog" novalidate>
     <h2 id="gh-title">Connect GitHub</h2>
-    <p>The list of securities is stored in the repository <code id="gh-repo"></code>. To add or remove a security, this page commits the change on your behalf, which needs a GitHub token with write access to that repository.</p>
+    <p>The list of securities is stored in the repository <code id="gh-repo"></code>. To add or remove a security or start a refresh, this page acts on your behalf, which needs a GitHub token with access to that repository.</p>
     <ol>
-      <li><a id="gh-token-link" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create a fine-grained token</a>. Repository access: only <code id="gh-repo-name"></code>. Permissions: Contents — Read and write.</li>
+      <li><a id="gh-token-link" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create a fine-grained token</a>. Repository access: only <code id="gh-repo-name"></code>. Permissions: Contents — Read and write (to edit the list) and Actions — Read and write (for Refresh now).</li>
       <li>Paste the token below. It is saved in this browser only and sent only to api.github.com.</li>
     </ol>
     <label class="label" for="gh-token">Token</label>
@@ -387,19 +387,26 @@ dialog .field { width: 100%; }
   }
   const inSession = (d, g = 0) => isOpen("LSE", d, g) || isOpen("NYSE", d, g);
 
-  // Mirrors the workflow crons + gate: */15 07-21 UTC Mon–Fri while in session, 0 */6 UTC otherwise.
-  function nextRun(from) {
-    const t = new Date(from);
+  // Mirrors `fetch_quotes.py gate`: the workflow fires every 5 min and refreshes once the
+  // published data is 15 min old in session (6 h otherwise). GitHub may start runs later.
+  function nextRun(now, gen) {
+    const t = new Date(now);
     t.setUTCSeconds(0, 0);
-    t.setUTCMinutes(Math.floor(t.getUTCMinutes() / 15) * 15 + 15);
-    for (let i = 0; i < 4 * 24 * 3; i++, t.setUTCMinutes(t.getUTCMinutes() + 15)) {
-      const h = t.getUTCHours(), m = t.getUTCMinutes(), wd = t.getUTCDay();
-      const session = inSession(t, GRACE_MIN);
-      if (session && wd >= 1 && wd <= 5 && h >= 7 && h <= 21) return new Date(t);
-      if (!session && m === 0 && h % 6 === 0) return new Date(t);
+    t.setUTCMinutes(Math.ceil((t.getUTCMinutes() + 1) / 5) * 5);
+    for (let i = 0; i < 12 * 8; i++, t.setUTCMinutes(t.getUTCMinutes() + 5)) {
+      const due = inSession(t, GRACE_MIN) ? 14 * 60e3 : (5 * 60 + 50) * 60e3;
+      if (t - gen >= due) return new Date(t);
     }
     return null;
   }
+
+  // Data is overdue when GitHub has clearly skipped refreshes, not merely run a little late.
+  function overdue(now, gen) {
+    const age = now - gen;
+    return inSession(now, GRACE_MIN) ? age > 45 * 60e3 : age > 7 * 36e5;
+  }
+
+  const ageText = (ms) => (ms < 90 * 60e3 ? `${Math.round(ms / 60e3)} min` : `${Math.floor(ms / 36e5)} h`);
 
   function renderStatus() {
     const now = new Date();
@@ -409,8 +416,12 @@ dialog .field { width: 100%; }
       el.dataset.open = String(open);
       el.lastChild.textContent = `${k} ${open ? "open" : "closed"}`;
     }
-    const nr = nextRun(now);
-    $("next").textContent = nr ? `Next scheduled data refresh: about ${timeFmt.format(nr)}.` : "";
+    const nr = data ? nextRun(now, new Date(data.generated_at)) : null;
+    $("next").textContent = nr ? `Next scheduled data refresh: about ${timeFmt.format(nr)}. ` : "";
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "link"; b.textContent = "Refresh now";
+    b.addEventListener("click", () => requestRefresh(false));
+    $("next").append(b);
   }
 
   // ---- Rows ---------------------------------------------------------------
@@ -533,7 +544,7 @@ dialog .field { width: 100%; }
 
   function renderMeta() {
     const gen = new Date(data.generated_at);
-    const ageH = (Date.now() - gen) / 36e5;
+    const now = new Date();
     $("updated").textContent = `Data as of ${timeFmt.format(gen)}`;
     const order = (cur) => (cur === "GBP" ? 0 : cur === "EUR" ? 1 : 2);
     const fx = Object.entries(data.fx || {}).filter(([cur]) => cur !== "USD")
@@ -541,8 +552,11 @@ dialog .field { width: 100%; }
     $("fx").innerHTML = fx.length ? fx.map(([cur, f]) => `<span class="fx-pair">${esc(cur)}/USD ${num(f.rate, 4)}</span>`).join("") : "—";
     $("fx-src").textContent = fx.length ? [...new Set(fx.map(([, f]) => f.source + (f.stale ? " (stale)" : "")))].join(", ") : "";
     const notes = [];
-    if (ageH > 7) {
-      notes.push(`Data has not been refreshed for ${Math.floor(ageH)} h. Check the <a href="https://github.com/${esc(REPO_SLUG)}/actions/workflows/quotes.yml" target="_blank" rel="noopener">Quotes workflow runs</a> in GitHub Actions.`);
+    if (overdue(now, gen)) {
+      const runs = `<a href="https://github.com/${esc(REPO_SLUG)}/actions/workflows/quotes.yml" target="_blank" rel="noopener">Quotes workflow runs</a>`;
+      notes.push(refreshNote
+        ? `Quotes are ${ageText(now - gen)} old. ${esc(refreshNote)}`
+        : `Quotes are ${ageText(now - gen)} old: GitHub has not started the scheduled refresh on time. Use Refresh now below, or check the ${runs}.`);
     }
     const stale = data.quotes.filter((q) => q.stale && q.price != null).map((q) => q.symbol);
     if (stale.length) notes.push(`Could not refresh ${esc(stale.join(", "))}; showing the last quote received.`);
@@ -565,7 +579,8 @@ dialog .field { width: 100%; }
 
   function schedulePoll() {
     clearTimeout(pollTimer);
-    pollTimer = setTimeout(load, hasPending() ? PENDING_POLL_MS : POLL_MS);
+    const fast = hasPending() || Date.now() - refreshAt < REFRESH_POLL_MS;
+    pollTimer = setTimeout(load, fast ? PENDING_POLL_MS : POLL_MS);
   }
 
   // ---- Data load ----------------------------------------------------------
@@ -575,6 +590,7 @@ dialog .field { width: 100%; }
       const res = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       data = await res.json();
+      if (refreshNote && !overdue(new Date(), new Date(data.generated_at))) refreshNote = "";
       reconcilePending();
       buildRows();
       renderMeta();
@@ -588,6 +604,7 @@ dialog .field { width: 100%; }
     }
     renderStatus();
     schedulePoll();
+    autoRefresh();
   }
 
   // ---- GitHub: edit the symbol list --------------------------------------
@@ -609,7 +626,7 @@ dialog .field { width: 100%; }
       err.status = res.status;
       throw err;
     }
-    return res.json();
+    return res.status === 204 ? null : res.json();
   }
 
   async function checkToken(t) {
@@ -640,6 +657,52 @@ dialog .field { width: 100%; }
       }
     }
     return false;
+  }
+
+  // ---- Refresh on demand ---------------------------------------------------
+
+  const AUTO_KEY = "portfolio.autoRefresh.v1";
+  const AUTO_EVERY_MS = 20 * 60e3;
+  const REFRESH_POLL_MS = 5 * 60e3;
+  let refreshNote = "";
+  let refreshAt = 0;
+
+  // Starts the Quotes workflow (needs Actions: Read and write on the token).
+  async function dispatchRefresh() {
+    const branch = await checkToken(token);
+    await gh(`/repos/${REPO_SLUG}/actions/workflows/quotes.yml/dispatches`, {
+      method: "POST", body: JSON.stringify({ ref: branch }),
+    });
+    refreshAt = Date.now();
+  }
+
+  function requestRefresh(auto) {
+    const run = async () => {
+      try {
+        await dispatchRefresh();
+        refreshNote = `Refresh requested at ${timeFmt.format(new Date())}; new quotes usually arrive within 1–2 minutes.`;
+        if (!auto) setMsg(refreshNote);
+      } catch (e) {
+        if (e.status === 401) forgetToken();
+        refreshNote = e.status === 403 || e.status === 404
+          ? "Could not start a refresh: the GitHub token needs Actions: Read and write. Add it to the token on GitHub, or create a new one."
+          : `Could not start a refresh. ${explain(e)}`;
+        if (!auto) setMsg(refreshNote, true);
+      }
+      if (data) renderMeta();
+      schedulePoll();
+    };
+    if (auto) return run();
+    withToken(run);
+  }
+
+  // When the owner (a browser with a token) opens overdue data, ask GitHub for a run.
+  function autoRefresh() {
+    if (!token || !data || !overdue(new Date(), new Date(data.generated_at))) return;
+    const last = store.get(AUTO_KEY, 0);
+    if (Date.now() - last < AUTO_EVERY_MS) return;
+    store.set(AUTO_KEY, Date.now());
+    requestRefresh(true);
   }
 
   function explain(e) {
@@ -729,7 +792,7 @@ dialog .field { width: 100%; }
   $("gh-repo-name").textContent = REPO.name;
   $("gh-token-link").href = "https://github.com/settings/personal-access-tokens/new?" + new URLSearchParams({
     name: "Moot Portfolio", description: "Edit the Moot Portfolio security list",
-    target_name: REPO.owner, contents: "write",
+    target_name: REPO.owner, contents: "write", actions: "write",
   });
 
   function openDialog(action) {

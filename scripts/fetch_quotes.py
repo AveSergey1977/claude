@@ -2,8 +2,9 @@
 """Fetch quotes for the portfolio page and decide when a refresh is due.
 
 Subcommands:
-  gate   print run=true/false (and append to $GITHUB_OUTPUT) according to the
-         schedule: every 15 min while LSE or NYSE is in session, every 6 h otherwise.
+  gate   print run=true/false (and append to $GITHUB_OUTPUT): a scheduled run
+         refreshes when the published data is older than 15 min while LSE or
+         NYSE is in session, or older than 6 h otherwise.
   fetch  download quotes + FX rates and write the JSON consumed by site/index.html.
 
 Yahoo answers 429 to non-browser TLS fingerprints (e.g. urllib from GitHub
@@ -44,7 +45,7 @@ def load_symbols(path: Path = SYMBOLS_FILE) -> list[str]:
     return out
 
 # Regular sessions (local time). Exchange holidays are not modelled: on a holiday
-# the 15-minute schedule simply re-fetches unchanged prices.
+# the 15-minute cadence simply re-fetches unchanged prices.
 SESSIONS = {
     "LSE": ("Europe/London", (8, 0), (16, 30)),
     "NYSE": ("America/New_York", (9, 30), (16, 0)),
@@ -53,8 +54,11 @@ SESSIONS = {
 # even when GitHub delays a scheduled run.
 CLOSE_GRACE = timedelta(minutes=20)
 
-# Must match the off-hours cron in .github/workflows/quotes.yml.
-OFF_HOURS_CRON = "0 */6 * * *"
+# Refresh cadence. GitHub drops or delays many scheduled runs, so the workflow
+# fires often and each run refreshes only when the published data is this old.
+# The margins absorb GitHub's start-time jitter.
+IN_SESSION_MAX_AGE = timedelta(minutes=14)
+OFF_HOURS_MAX_AGE = timedelta(hours=5, minutes=50)
 
 ALWAYS_FX = {"GBP", "EUR"}
 
@@ -78,14 +82,26 @@ def market_status(now: datetime, grace: timedelta = timedelta(0)) -> dict[str, b
     return status
 
 
-def should_run(event: str, schedule: str, now: datetime) -> tuple[bool, str]:
+def should_run(event: str, now: datetime, data_time: datetime | None) -> tuple[bool, str]:
+    """Scheduled runs refresh only when the published data is due; other events always run."""
     if event != "schedule":
         return True, f"event={event}"
+    if data_time is None:
+        return True, "no published data"
     in_session = any(market_status(now, CLOSE_GRACE).values())
-    if schedule == OFF_HOURS_CRON:
-        # During trading hours the 15-minute schedule already covers this slot.
-        return (not in_session), f"off-hours cron, in_session={in_session}"
-    return in_session, f"trading-hours cron, in_session={in_session}"
+    max_age = IN_SESSION_MAX_AGE if in_session else OFF_HOURS_MAX_AGE
+    age = now - data_time
+    return age >= max_age, f"in_session={in_session}, data age {age} vs {max_age}"
+
+
+def published_data_time(url: str | None) -> datetime | None:
+    if not url:
+        return None
+    try:
+        return datetime.fromisoformat(http_json(url)["generated_at"])
+    except Exception as e:
+        print(f"warn: published data unavailable ({e})", file=sys.stderr)
+        return None
 
 
 def http_json(url: str, timeout: float = 20.0) -> dict:
@@ -227,7 +243,8 @@ def build_snapshot(now: datetime, prev: dict, symbols: list[str],
 def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("gate")
+    g = sub.add_parser("gate")
+    g.add_argument("--data-url")
     f = sub.add_parser("fetch")
     f.add_argument("--out", required=True)
     f.add_argument("--prev-url")
@@ -235,7 +252,9 @@ def main() -> int:
     now = datetime.now(timezone.utc)
 
     if args.cmd == "gate":
-        run, why = should_run(os.environ.get("EVENT", "workflow_dispatch"), os.environ.get("SCHEDULE", ""), now)
+        event = os.environ.get("EVENT", "workflow_dispatch")
+        data_time = published_data_time(args.data_url) if event == "schedule" else None
+        run, why = should_run(event, now, data_time)
         print(f"run={str(run).lower()} ({why})")
         if out := os.environ.get("GITHUB_OUTPUT"):
             with open(out, "a") as fh:

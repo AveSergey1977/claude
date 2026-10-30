@@ -11,15 +11,19 @@ Live page: https://avesergey1977.github.io/claude/
 | Page | `site/index.html` | Quotes table, quantities, totals in USD, adding and removing securities. Quantities are stored in the browser's `localStorage` and never leave it. Data is re-read every 5 minutes (every 30 s while an edit is pending) and when the tab regains focus. |
 | Security list | `site/symbols.json` | Yahoo Finance tickers in the portfolio. The page edits this file through the GitHub API; the commit triggers a fresh fetch and deploy. |
 | Fetcher | `scripts/fetch_quotes.py` | Fetches quotes and FX rates to USD (GBP and EUR always, plus any other currency held) from Yahoo Finance (through `curl_cffi` with browser impersonation; plain clients get HTTP 429), with the ECB rate via Frankfurter as the FX fallback. Writes `site/data/quotes.json`. Prices quoted in pence (GBp) are converted to GBP. A security that fails keeps its last price, marked stale; an unknown ticker is shown as "no data". |
-| Schedule | `.github/workflows/quotes.yml` | GitHub Actions: every 15 minutes while the LSE (08:00–16:30 London) or NYSE (09:30–16:00 New York) is open, plus 20 minutes after the close; every 6 hours otherwise (00/06/12/18 UTC). Publishes to GitHub Pages. A newer run cancels an older one still in progress. |
+| Schedule | `.github/workflows/quotes.yml` | GitHub Actions fires every 5 minutes; `fetch_quotes.py gate` refreshes only when the published data is older than 15 minutes while the LSE (08:00–16:30 London) or NYSE (09:30–16:00 New York) is open (plus 20 minutes after the close), or older than 6 hours otherwise. GitHub drops or delays many scheduled runs, so the cadence is driven by data age, not by which slot fired. Publishes to GitHub Pages. A newer run cancels an older one still in progress. |
 
 ## Adding and removing securities
 
 1. Enter a Yahoo Finance ticker under **Add a security** (e.g. `MSFT`, `VOD.L`, `SAP.DE`), or click **×** on a row and confirm.
-2. The first time, the page asks for a GitHub fine-grained token: repository access limited to this repository, permission **Contents: Read and write**. The token is kept in that browser's `localStorage` and sent only to `api.github.com`; **Disconnect** in the footer removes it.
+2. The first time, the page asks for a GitHub fine-grained token: repository access limited to this repository, permissions **Contents: Read and write** (edit the list) and **Actions: Read and write** (Refresh now). The token is kept in that browser's `localStorage` and sent only to `api.github.com`; **Disconnect** in the footer removes it.
 3. The page commits the updated `site/symbols.json`; the workflow fetches quotes and redeploys within 1–2 minutes.
 
 The token is stored per browser origin. Every GitHub Pages project of the same account shares the origin `https://avesergey1977.github.io`, so another Pages site of this account could read it. Use a token scoped to this repository only, with an expiry.
+
+## Refresh now
+
+GitHub runs schedules on a best-effort basis and sometimes skips them for hours. **Refresh now** under the table starts the Quotes workflow immediately. When a browser with a connected token opens overdue data (over 45 minutes old in session, over 7 hours otherwise), the page requests a refresh by itself, at most once every 20 minutes. Both need the token's **Actions: Read and write** permission.
 
 ## Setup
 
