@@ -84,6 +84,12 @@ h1 { margin: 0; font: 700 1.5rem/1.1 var(--font-display); letter-spacing: -0.01e
   padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px;
   background: var(--surface); white-space: nowrap;
 }
+.refresh-btn { font: inherit; color: var(--accent); border-color: var(--accent); cursor: pointer; }
+.refresh-btn:hover { background: var(--info-bg); }
+.refresh-btn[data-state="busy"] svg { animation: spin 0.9s linear infinite; }
+.refresh-btn[data-state="error"] { color: var(--down); border-color: var(--down); }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .refresh-btn[data-state="busy"] svg { animation: none; } }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .pill[data-open="true"] .dot { background: var(--up); }
 
@@ -227,6 +233,10 @@ dialog .field { width: 100%; }
       <h1>Moot Portfolio</h1>
     </div>
     <div class="status">
+      <button type="button" class="pill refresh-btn" id="refresh-btn" title="Fetch new quotes now">
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span id="refresh-label">Refresh</span>
+      </button>
       <span class="pill" id="lse" data-open="false"><span class="dot"></span>LSE</span>
       <span class="pill" id="nyse" data-open="false"><span class="dot"></span>NYSE</span>
       <span class="muted" id="updated">Loading quotes…</span>
@@ -552,6 +562,7 @@ dialog .field { width: 100%; }
     $("fx").innerHTML = fx.length ? fx.map(([cur, f]) => `<span class="fx-pair">${esc(cur)}/USD ${num(f.rate, 4)}</span>`).join("") : "—";
     $("fx-src").textContent = fx.length ? [...new Set(fx.map(([, f]) => f.source + (f.stale ? " (stale)" : "")))].join(", ") : "";
     const notes = [];
+    if (refreshFailed && !overdue(now, gen)) notes.push(esc(refreshNote));
     if (overdue(now, gen)) {
       const runs = `<a href="https://github.com/${esc(REPO_SLUG)}/actions/workflows/quotes.yml" target="_blank" rel="noopener">Quotes workflow runs</a>`;
       notes.push(refreshNote
@@ -590,6 +601,10 @@ dialog .field { width: 100%; }
       const res = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       data = await res.json();
+      if (refreshAt && (new Date(data.generated_at) >= refreshAt - 60e3 || Date.now() - refreshAt > REFRESH_POLL_MS)) {
+        refreshAt = 0;
+        if ($("refresh-btn").dataset.state === "busy") setRefreshButton("idle");
+      }
       if (refreshNote && !overdue(new Date(), new Date(data.generated_at))) refreshNote = "";
       reconcilePending();
       buildRows();
@@ -665,6 +680,7 @@ dialog .field { width: 100%; }
   const AUTO_EVERY_MS = 20 * 60e3;
   const REFRESH_POLL_MS = 5 * 60e3;
   let refreshNote = "";
+  let refreshFailed = false;
   let refreshAt = 0;
 
   // Starts the Quotes workflow (needs Actions: Read and write on the token).
@@ -676,18 +692,30 @@ dialog .field { width: 100%; }
     refreshAt = Date.now();
   }
 
+  // Header button: idle → busy (request in flight, then waiting for new data) → idle, or error.
+  function setRefreshButton(state, title) {
+    const btn = $("refresh-btn");
+    btn.dataset.state = state;
+    btn.disabled = state === "busy";
+    btn.title = title || "Fetch new quotes now";
+    $("refresh-label").textContent = state === "busy" ? "Refreshing…" : state === "error" ? "Refresh failed" : "Refresh";
+  }
+
   function requestRefresh(auto) {
     const run = async () => {
+      if (!auto) setRefreshButton("busy");
       try {
         await dispatchRefresh();
+        refreshFailed = false;
         refreshNote = `Refresh requested at ${timeFmt.format(new Date())}; new quotes usually arrive within 1–2 minutes.`;
-        if (!auto) setMsg(refreshNote);
+        if (!auto) { setMsg(refreshNote); setRefreshButton("busy", refreshNote); }
       } catch (e) {
         if (e.status === 401) forgetToken();
+        refreshFailed = !auto;
         refreshNote = e.status === 403 || e.status === 404
           ? "Could not start a refresh: the GitHub token needs Actions: Read and write. Add it to the token on GitHub, or create a new one."
           : `Could not start a refresh. ${explain(e)}`;
-        if (!auto) setMsg(refreshNote, true);
+        if (!auto) { setMsg(refreshNote, true); setRefreshButton("error", refreshNote); }
       }
       if (data) renderMeta();
       schedulePoll();
@@ -850,6 +878,9 @@ dialog .field { width: 100%; }
   }
 
   // ---- Boot ---------------------------------------------------------------
+
+  $("refresh-btn").addEventListener("click", () => requestRefresh(false));
+  $("gh-cancel").addEventListener("click", () => { if ($("refresh-btn").dataset.state !== "busy") setRefreshButton("idle"); });
 
   $("clear").addEventListener("click", () => {
     qty = {};

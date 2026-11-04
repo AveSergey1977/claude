@@ -23,7 +23,7 @@ The token is stored per browser origin. Every GitHub Pages project of the same a
 
 ## Refresh now
 
-GitHub runs schedules on a best-effort basis and sometimes skips them for hours. **Refresh now** under the table starts the Quotes workflow immediately. When a browser with a connected token opens overdue data (over 45 minutes old in session, over 7 hours otherwise), the page requests a refresh by itself, at most once every 20 minutes. Both need the token's **Actions: Read and write** permission.
+GitHub runs schedules on a best-effort basis and sometimes skips them for hours. The **Refresh** button in the header (left of the LSE indicator), or **Refresh now** under the table, starts the Quotes workflow immediately; the button shows "Refreshing…" until the new quotes arrive. When a browser with a connected token opens overdue data (over 45 minutes old in session, over 7 hours otherwise), the page requests a refresh by itself, at most once every 20 minutes. Both need the token's **Actions: Read and write** permission.
 
 ## Setup
 
