@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Резервные копии календарей</title>
+<style>
+:root{
+  --bg:#f6f7f9;--card:#fff;--fg:#1d2330;--muted:#667085;--line:#e4e7ec;
+  --accent:#2f5bea;--accent-fg:#fff;--ok:#12805c;--ok-bg:#e7f6ef;--warn:#9a6700;--warn-bg:#fff4d6;
+  --err:#b42318;--err-bg:#fdecea;--run:#2f5bea;--run-bg:#e8eefe;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1218;--card:#171b23;--fg:#e6e9ef;--muted:#98a2b3;--line:#2a303b;
+  --accent:#6d8cff;--accent-fg:#0f1218;--ok:#4cc38a;--ok-bg:#12291f;--warn:#e6b84c;--warn-bg:#2b2412;
+  --err:#ff7b72;--err-bg:#2d1615;--run:#8aa4ff;--run-bg:#1a2140;
+}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:1040px;margin:0 auto;padding:24px 16px 48px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:20px}
+h1{font-size:20px;margin:0}
+h2{font-size:15px;margin:0 0 12px}
+.sub{color:var(--muted);font-size:13px}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;padding:8px 14px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+button:disabled{opacity:.55;cursor:default}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.v{font-size:20px;font-weight:600;margin-top:4px}
+.s{color:var(--muted);font-size:12px;margin-top:2px;word-break:break-all}
+.pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+.ok{color:var(--ok);background:var(--ok-bg)}.partial{color:var(--warn);background:var(--warn-bg)}
+.error{color:var(--err);background:var(--err-bg)}.running{color:var(--run);background:var(--run-bg)}
+form{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px 16px;align-items:end}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+input,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+.check{flex-direction:row;align-items:center;gap:8px;color:var(--fg)}
+.srcs{display:flex;flex-wrap:wrap;gap:8px 18px;grid-column:1/-1}
+.row{display:flex;gap:8px;align-items:center;grid-column:1/-1}
+.msg{font-size:13px;color:var(--muted)}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500;font-size:12px}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+details summary{cursor:pointer;color:var(--accent);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+details[open] summary{white-space:normal}
+td:last-child{min-width:240px}
+details ul{margin:6px 0 0;padding-left:18px}
+.e{color:var(--err)}
+.empty{color:var(--muted);padding:16px 8px}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div>
+    <h1>Резервные копии календарей</h1>
+    <div class="sub" id="state">Загрузка…</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button id="open">Открыть папку</button>
+    <button class="primary" id="run">Создать копию сейчас</button>
+  </div>
+</header>
+
+<section class="grid">
+  <div class="card"><div class="k">Последняя копия</div><div class="v" id="last">—</div><div class="s" id="last-s"></div></div>
+  <div class="card"><div class="k">Размер последней копии</div><div class="v" id="size">—</div><div class="s" id="size-s"></div></div>
+  <div class="card"><div class="k">Следующая копия</div><div class="v" id="next">—</div><div class="s" id="next-s"></div></div>
+  <div class="card"><div class="k">На этом компьютере</div><div class="v" id="local">—</div><div class="s" id="local-s"></div></div>
+  <div class="card"><div class="k">Google Drive</div><div class="v" id="drive">—</div><div class="s" id="drive-s"></div></div>
+</section>
+
+<section class="card" style="margin-bottom:16px">
+  <h2>Настройки</h2>
+  <form id="settings">
+    <label>Частота копирования
+      <select id="interval">
+        <option value="1">каждый час</option><option value="2">каждые 2 часа</option>
+        <option value="3">каждые 3 часа</option><option value="4">каждые 4 часа</option>
+        <option value="6">каждые 6 часов</option><option value="8">каждые 8 часов</option>
+        <option value="12">каждые 12 часов</option><option value="24">раз в сутки</option>
+        <option value="48">раз в двое суток</option><option value="168">раз в неделю</option>
+        <option value="custom">другое…</option>
+      </select>
+    </label>
+    <label id="custom-wrap" hidden>Интервал, часов
+      <input id="custom" type="number" min="0.25" max="168" step="0.25">
+    </label>
+    <label>Хранить копий на компьютере<input id="keep-local" type="number" min="1" max="10000"></label>
+    <label>Хранить копий на Google Drive<input id="keep-drive" type="number" min="1" max="10000"></label>
+    <label class="check"><input id="drive-on" type="checkbox"> Загружать на Google Drive</label>
+    <div class="srcs" id="srcs"></div>
+    <div class="row"><button type="submit">Сохранить</button><span class="msg" id="smsg"></span></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Последние 5 обновлений</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Время</th><th>Запуск</th><th>Результат</th><th>Размер</th><th>Календари / записи</th><th>Длит.</th><th>Подробности</th></tr></thead>
+    <tbody id="hist"><tr><td colspan="7" class="empty">Нет данных</td></tr></tbody>
+  </table>
+  </div>
+</section>
+</main>
+<script>
+const TOKEN = "__TOKEN__";
+const $ = id => document.getElementById(id);
+const STATUS = {ok:["Успешно","ok"], partial:["Частично","partial"], error:["Ошибка","error"]};
+const TRIGGER = {schedule:"по расписанию", manual:"вручную", cli:"из терминала"};
+const TYPE = {google:"Google", caldav:"CalDAV", ics:"ICS-ссылки", macos:"Календарь macOS"};
+let last = null, dirty = false;
+
+function esc(s){return String(s ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function bytes(n){if(n==null)return"—";const u=["Б","КБ","МБ","ГБ"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return(i?n.toFixed(1):n)+" "+u[i]}
+function dt(v){const d=typeof v==="number"?new Date(v*1000):new Date(v);return d.toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"})}
+function ago(ts){const s=Math.round(Date.now()/1000-ts);if(s<60)return"только что";const m=Math.round(s/60);if(m<60)return m+" мин назад";const h=Math.round(m/60);if(h<48)return h+" ч назад";return Math.round(h/24)+" дн назад"}
+function until(ts){const s=Math.round(ts-Date.now()/1000);if(s<=0)return"сейчас";const m=Math.round(s/60);if(m<60)return"через "+m+" мин";const h=Math.floor(m/60);return"через "+h+" ч "+(m%60)+" мин"}
+function dur(s){return s==null?"—":(s<60?s.toFixed(1)+" с":Math.floor(s/60)+" мин "+Math.round(s%60)+" с")}
+function hours(h){h=Number(h);if(h===24)return"раз в сутки";if(h===168)return"раз в неделю";if(h%24===0)return"каждые "+(h/24)+" сут.";return"каждые "+h+" ч"}
+
+async function api(path, body){
+  const opt = body===undefined ? {} : {method:"POST",headers:{"Content-Type":"application/json","X-CalBackup-Token":TOKEN},body:JSON.stringify(body)};
+  const r = await fetch(path, opt);
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error || ("HTTP "+r.status));
+  return j;
+}
+
+function render(st){
+  last = st;
+  const h = st.history[0];
+  $("run").disabled = st.running;
+  $("run").textContent = st.running ? "Выполняется…" : "Создать копию сейчас";
+  $("state").innerHTML = st.running
+    ? `<span class="pill running">Выполняется</span> запущено ${esc(TRIGGER[st.current?.trigger]||"")} ${ago(st.current?.started_ts)}`
+    : (h ? `<span class="pill ${STATUS[h.status]?.[1]}">${STATUS[h.status]?.[0]}</span> последняя копия ${ago(h.started_ts)} · расписание: ${hours(st.interval_hours)}`
+         : `Копий ещё не было · расписание: ${hours(st.interval_hours)}`);
+  if(st.last_error) $("state").innerHTML += ` <span class="e">· ${esc(st.last_error)}</span>`;
+
+  const okRun = st.history.find(x=>x.archive);
+  $("last").textContent = h ? dt(h.started_at) : "—";
+  $("last-s").innerHTML = h ? `<span class="pill ${STATUS[h.status]?.[1]}">${STATUS[h.status]?.[0]}</span>` : "";
+  $("size").textContent = okRun ? bytes(okRun.size_bytes) : "—";
+  $("size-s").textContent = okRun ? `несжатый объём ${bytes(okRun.uncompressed_bytes)} · ${dt(okRun.started_at)}` : "";
+  $("next").textContent = st.running ? "после текущей" : until(st.next_run_ts);
+  $("next-s").textContent = st.running ? "" : dt(st.next_run_ts);
+  $("local").textContent = `${st.local.count} · ${bytes(st.local.bytes)}`;
+  $("local-s").textContent = st.local.dir;
+  const dlast = h?.destinations?.find(d=>d.id==="drive");
+  $("drive").textContent = !st.drive.enabled ? "выключено" : (dlast ? (dlast.ok ? "загружено" : "ошибка") : "включено");
+  $("drive-s").textContent = st.drive.enabled
+    ? (st.drive.mode==="folder" ? `папка: ${st.drive.folder_path||"не найдена"}/${st.drive.folder_name}` : `через API, папка «${st.drive.folder_name}»`) + (dlast&&!dlast.ok?` — ${dlast.error}`:"")
+    : "";
+
+  if(!dirty){
+    const iv = String(st.interval_hours);
+    const opt = [...$("interval").options].some(o=>o.value===iv);
+    $("interval").value = opt ? iv : "custom";
+    $("custom-wrap").hidden = opt;
+    $("custom").value = st.interval_hours;
+    $("keep-local").value = st.keep_local;
+    $("keep-drive").value = st.drive.keep;
+    $("drive-on").checked = st.drive.enabled;
+    $("srcs").innerHTML = st.sources.length
+      ? st.sources.map(s=>`<label class="check"><input type="checkbox" data-src="${esc(s.id)}" ${s.enabled?"checked":""}> ${esc(s.id)} <span class="sub">(${esc(TYPE[s.type]||s.type)})</span></label>`).join("")
+      : `<span class="msg e">Источники не настроены: добавьте их в config.json (см. README).</span>`;
+  }
+
+  $("hist").innerHTML = st.history.length ? st.history.map(e=>{
+    const [label, cls] = STATUS[e.status] || ["?", ""];
+    const det = [
+      ...(e.sources||[]).map(s=>`<li>${esc(s.id)}: ${s.ok?"✓":"✗"} ${s.calendars??0} кал., ${s.events??0} зап.${s.error?` — <span class="e">${esc(s.error)}</span>`:""}${(s.warnings||[]).map(w=>`<br><span class="sub">${esc(w)}</span>`).join("")}</li>`),
+      ...(e.destinations||[]).map(d=>`<li>${d.id==="local"?"Компьютер":"Google Drive"}: ${d.ok?"✓":"✗"}${d.error?` — <span class="e">${esc(d.error)}</span>`:""}${d.link?` — <a href="${esc(d.link)}" target="_blank" rel="noopener">открыть</a>`:""}</li>`),
+    ].join("");
+    return `<tr>
+      <td class="num">${dt(e.started_at)}</td>
+      <td>${esc(TRIGGER[e.trigger]||e.trigger)}</td>
+      <td><span class="pill ${cls}">${label}</span></td>
+      <td class="num">${bytes(e.size_bytes)}</td>
+      <td class="num">${e.calendars??"—"} / ${e.events??"—"}</td>
+      <td class="num">${dur(e.duration_s)}</td>
+      <td><details><summary>${esc(e.status==="ok"?"показать":e.message)}</summary><ul>${det}</ul>${e.archive?`<div class="sub">${esc(e.archive)}</div>`:""}</details></td>
+    </tr>`}).join("") : `<tr><td colspan="7" class="empty">Копий ещё не было</td></tr>`;
+}
+
+let timer;
+async function refresh(){
+  clearTimeout(timer);
+  try{ render(await api("/api/status")); }
+  catch(e){ $("state").innerHTML = `<span class="pill error">Нет связи</span> ${esc(e.message)}`; }
+  timer = setTimeout(refresh, last?.running ? 3000 : 30000);
+}
+
+$("run").onclick = async () => {
+  $("run").disabled = true;
+  try{ await api("/api/run", {}); }catch(e){ alert(e.message); }
+  setTimeout(refresh, 500);
+};
+$("open").onclick = () => api("/api/open-folder", {}).catch(e=>alert(e.message));
+$("interval").onchange = () => { $("custom-wrap").hidden = $("interval").value !== "custom"; };
+$("settings").oninput = () => { dirty = true; $("smsg").textContent = "Есть несохранённые изменения"; };
+$("settings").onsubmit = async ev => {
+  ev.preventDefault();
+  const iv = $("interval").value === "custom" ? $("custom").value : $("interval").value;
+  const sources = {};
+  document.querySelectorAll("[data-src]").forEach(c => sources[c.dataset.src] = c.checked);
+  try{
+    const st = await api("/api/settings", {
+      interval_hours: Number(iv), keep_local: Number($("keep-local").value),
+      drive_keep: Number($("keep-drive").value), drive_enabled: $("drive-on").checked, sources,
+    });
+    dirty = false; $("smsg").textContent = "Сохранено"; render(st);
+  }catch(e){ $("smsg").innerHTML = `<span class="e">${esc(e.message)}</span>`; }
+};
+document.addEventListener("visibilitychange", () => { if(!document.hidden) refresh(); });
+refresh();
+</script>
+</body>
+</html>

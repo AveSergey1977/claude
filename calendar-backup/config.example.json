@@ -1,0 +1,48 @@
+{
+  "interval_hours": 6,
+  "panel_port": 8765,
+  "local_dir": "~/CalendarBackups",
+  "keep_local": 120,
+  "notify_on_error": true,
+  "drive": {
+    "enabled": true,
+    "mode": "api",
+    "folder_name": "Calendar Backups",
+    "folder_path": "",
+    "keep": 120
+  },
+  "sources": [
+    {
+      "id": "google",
+      "type": "google",
+      "enabled": true,
+      "calendar_ids": [],
+      "exclude_ids": []
+    },
+    {
+      "id": "icloud",
+      "type": "caldav",
+      "enabled": true,
+      "url": "https://caldav.icloud.com",
+      "username": "APPLE_ID@icloud.com",
+      "password_keyring": "icloud",
+      "include_todos": true
+    },
+    {
+      "id": "mac",
+      "type": "macos",
+      "enabled": false,
+      "years_back": 10,
+      "years_forward": 5,
+      "exclude_accounts": []
+    },
+    {
+      "id": "links",
+      "type": "ics",
+      "enabled": false,
+      "urls": {
+        "Outlook (опубликованный)": { "keyring": "outlook-ics" }
+      }
+    }
+  ]
+}

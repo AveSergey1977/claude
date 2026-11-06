@@ -1,5 +1,7 @@
 # Moot Portfolio
 
+> В репозитории также: [`calendar-backup/`](calendar-backup/README.md) — резервное копирование календарей на Mac и Google Drive.
+
 Static page with live quotes for a list of securities, a quantity field per position, position values and the portfolio total in USD.
 
 Live page: https://avesergey1977.github.io/claude/
