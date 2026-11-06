@@ -26,7 +26,9 @@ from .engine import AlreadyRunning, run_backup
 
 log = logging.getLogger("calbackup")
 
-RETRY_AFTER_FAILURE_S = 3600  # a failed run is retried after at most 1 hour
+RETRY_AFTER_FAILURE_S = 3600
+STATIC_DIR = Path(__file__).parent / "static"
+STATIC = {"favicon.svg": "image/svg+xml", "favicon.png": "image/png", "apple-touch-icon.png": "image/png"}  # a failed run is retried after at most 1 hour
 
 
 class Scheduler:
@@ -185,6 +187,18 @@ def make_handler(sched: Scheduler, token: str, port: int):
                 return self._send(HTTPStatus.OK, html, "text/html; charset=utf-8")
             if self.path == "/api/status":
                 return self._json(HTTPStatus.OK, status_payload(sched))
+            name = self.path.lstrip("/")
+            if name == "favicon.ico":
+                name = "favicon.png"
+            if name in STATIC:
+                body = (STATIC_DIR / name).read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", STATIC[name])
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                self.wfile.write(body)
+                return
             self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
         def do_POST(self):
