@@ -222,13 +222,34 @@ def make_handler(sched: Scheduler, token: str, port: int):
     return Handler
 
 
+def panel_token() -> str:
+    """Kept across restarts, so a panel tab left open keeps working after the daemon restarts."""
+    import os
+
+    from .config import app_home
+
+    p = app_home() / "panel_token"
+    try:
+        tok = p.read_text(encoding="utf-8").strip()
+        if len(tok) >= 32:
+            return tok
+    except OSError:
+        pass
+    tok = secrets.token_urlsafe(32)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(p), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(tok)
+    return tok
+
+
 def serve() -> None:
     cfg = load_config()
     host, port = cfg.get("panel_host", "127.0.0.1"), int(cfg.get("panel_port", 8765))
     if host not in ("127.0.0.1", "localhost", "::1"):
         raise SystemExit("Панель доступна только на localhost (panel_host)")
     sched = Scheduler()
-    token = secrets.token_urlsafe(24)
+    token = panel_token()
     httpd = ThreadingHTTPServer((host, port), make_handler(sched, token, port))
     threading.Thread(target=sched.loop, daemon=True).start()
     log.info("panel: http://127.0.0.1:%d", port)
