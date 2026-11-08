@@ -505,6 +505,9 @@ def sync(gcfg: dict, api, progress=None, now=None) -> dict:
     email = prof.get("emailAddress") or "me"
     stats["account"] = email
     stats["mailbox_total"] = prof.get("messagesTotal")
+    from .folders import require_volume
+
+    require_volume(base_dir(gcfg))
     store = Store(base_dir(gcfg) / _safe_dir(email))
     try:
         (store.root / "labels.json").write_text(
@@ -629,11 +632,16 @@ def status(cfg: dict) -> dict:
         except Exception as e:  # never break the panel
             c = {"error": str(e)}
         accs.append({"account": root.name, "dir": str(root), **c})
+    from .folders import same_folder
+
+    setting = gcfg.get("local_dir") or DEFAULTS["local_dir"]
     return {
         "enabled": bool(gcfg.get("enabled")),
         "interval_hours": gcfg.get("interval_hours"),
         "include_spam": bool(gcfg.get("include_spam")),
         "dir": str(base_dir(gcfg)),
+        "dir_setting": "" if same_folder(setting, DEFAULTS["local_dir"]) else setting,
+        "dir_default": DEFAULTS["local_dir"],
         "accounts": accs,
     }
 

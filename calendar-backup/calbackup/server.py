@@ -13,8 +13,9 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__, gmail
+from . import __version__, folders, gmail
 from .config import (
+    DEFAULTS,
     load_config,
     load_history,
     local_dir,
@@ -22,7 +23,7 @@ from .config import (
     validate_interval,
 )
 from .destinations import detect_drive_folder, local_usage
-from .engine import AlreadyRunning, run_backup
+from .engine import AlreadyRunning, RunLock, run_backup
 
 log = logging.getLogger("calbackup")
 
@@ -145,7 +146,13 @@ def status_payload(sched: Scheduler, gsched: Scheduler | None = None) -> dict:
         "next_run_ts": sched.next_run_ts(),
         "interval_hours": cfg.get("interval_hours"),
         "keep_local": cfg.get("keep_local"),
-        "local": {"dir": str(local_dir(cfg)), **local_usage(local_dir(cfg))},
+        "local": {
+            "dir": str(local_dir(cfg)),
+            # what the panel shows in the folder field: empty when the standard folder is used
+            "setting": "" if folders.same_folder(cfg.get("local_dir", ""), DEFAULTS["local_dir"]) else cfg.get("local_dir"),
+            "default": DEFAULTS["local_dir"],
+            **local_usage(local_dir(cfg)),
+        },
         "drive": {
             "enabled": bool(d.get("enabled")),
             "mode": d.get("mode", "api"),
@@ -163,8 +170,24 @@ def status_payload(sched: Scheduler, gsched: Scheduler | None = None) -> dict:
     }
 
 
-def apply_settings(body: dict) -> dict:
+class Busy(Exception):
+    pass
+
+
+def _folder_change(body: dict, key: str, current: str, default: str, what: str):
+    """None when unchanged, else (new value to store, full path)."""
+    if key not in body:
+        return None
+    value = str(body[key] or "").strip() or default
+    if folders.same_folder(value, current):
+        return None
+    return value, folders.validate(value, what)
+
+
+def apply_settings(body: dict, sched: Scheduler | None = None, gsched: Scheduler | None = None) -> tuple:
+    """Validates and saves panel settings. Returns (config, notices)."""
     cfg = load_config()
+    notices: list = []
     if "interval_hours" in body:
         cfg["interval_hours"] = validate_interval(body["interval_hours"])
     if "keep_local" in body:
@@ -189,8 +212,51 @@ def apply_settings(body: dict) -> dict:
         sid = s.get("id") or s.get("type")
         if sid in (body.get("sources") or {}):
             s["enabled"] = bool(body["sources"][sid])
-    save_config(cfg)
-    return cfg
+
+    # folders: validated before anything is moved or saved
+    cal_old = local_dir(cfg)
+    g_old = gmail.base_dir(gmail.settings(cfg))
+    cal = _folder_change(body, "local_dir", cfg.get("local_dir", ""), DEFAULTS["local_dir"],
+                         "Папка архивов календарей")
+    gm = _folder_change(body, "gmail_dir", g.get("local_dir") or gmail.DEFAULTS["local_dir"],
+                        gmail.DEFAULTS["local_dir"], "Папка копии Gmail")
+    cal_new = cal[1] if cal else cal_old
+    if gm and (gm[1] == cal_new / "latest" or cal_new / "latest" in gm[1].parents
+               or any(part.startswith(".staging-") for part in gm[1].parts)):
+        raise ValueError("Папка копии Gmail не может находиться внутри служебных папок архивов календарей")
+    if cal and sched is not None and sched.running:
+        raise Busy("Идёт копирование календарей; смените папку после его окончания")
+    if gm and gsched is not None and gsched.running:
+        raise Busy("Идёт копирование Gmail; смените папку после его окончания")
+    move = bool(body.get("move_existing", True))
+
+    try:
+        with RunLock() if cal else _nolock(), \
+             RunLock("gmail.lock", "копирование Gmail уже выполняется") if gm else _nolock():
+            if cal:
+                cfg["local_dir"] = cal[0]
+                if move:
+                    notices.append(folders.move_calendar_archives(cal_old, cal[1]))
+                elif cal_old.is_dir() and any(cal_old.glob(folders.ARCHIVE_GLOB)):
+                    notices.append(f"Прежние архивы календарей остались в {cal_old}")
+            if gm:
+                g["local_dir"] = gm[0]
+                if move:
+                    notices.append(folders.move_gmail(g_old, gm[1]))
+                elif gmail.accounts({"local_dir": str(g_old)}):
+                    notices.append(f"Прежняя копия Gmail осталась в {g_old}; в новой папке письма будут загружены заново")
+            save_config(cfg)
+    except AlreadyRunning as e:
+        raise Busy(f"Сейчас идёт {str(e).replace(' уже выполняется', '')}; смените папку после его окончания") from None
+    return cfg, [n for n in notices if n]
+
+
+class _nolock:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
 
 
 def make_handler(sched: Scheduler, token: str, port: int, gsched: Scheduler | None = None):
@@ -265,12 +331,27 @@ def make_handler(sched: Scheduler, token: str, port: int, gsched: Scheduler | No
                 return self._json(HTTPStatus.CONFLICT, {"error": "Копирование уже выполняется"})
             if self.path == "/api/settings":
                 try:
-                    apply_settings(body)
+                    _, notices = apply_settings(body, sched, gsched)
+                except Busy as e:
+                    return self._json(HTTPStatus.CONFLICT, {"error": str(e)})
                 except (ValueError, TypeError) as e:
                     return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+                except OSError as e:
+                    log.exception("moving backups failed")
+                    return self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Перенос копий не удался: {e}"})
                 sched.wake.set()
                 gsched.wake.set()
-                return self._json(HTTPStatus.OK, status_payload(sched, gsched))
+                return self._json(HTTPStatus.OK, {**status_payload(sched, gsched), "notices": notices})
+            if self.path == "/api/choose-folder":
+                cfg = load_config()
+                gm = body.get("target") == "gmail"
+                start = str(gmail.base_dir(gmail.settings(cfg)) if gm else local_dir(cfg))
+                prompt = "Папка для копии Gmail" if gm else "Папка для архивов календарей"
+                try:
+                    path = folders.choose_folder_dialog(prompt, start)
+                except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+                    return self._json(HTTPStatus.NOT_IMPLEMENTED, {"error": str(e)})
+                return self._json(HTTPStatus.OK, {"path": path, "cancelled": path is None})
             if self.path == "/api/gmail/run":
                 if not gmail.settings(load_config()).get("enabled"):
                     return self._json(HTTPStatus.CONFLICT, {"error": "Копирование Gmail выключено в настройках"})
@@ -280,6 +361,10 @@ def make_handler(sched: Scheduler, token: str, port: int, gsched: Scheduler | No
             if self.path == "/api/open-folder":
                 cfg = load_config()
                 folder = gmail.base_dir(gmail.settings(cfg)) if body.get("target") == "gmail" else local_dir(cfg)
+                try:
+                    folders.require_volume(folder)
+                except RuntimeError as e:
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
                 folder.mkdir(parents=True, exist_ok=True)
                 if sys.platform == "darwin":
                     subprocess.Popen(["open", str(folder)])

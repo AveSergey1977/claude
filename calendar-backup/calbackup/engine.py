@@ -105,6 +105,21 @@ def _run(trigger: str) -> dict:
     started = time.time()
     stamp = datetime.fromtimestamp(started).strftime("%Y%m%d-%H%M%S")
     base = local_dir(cfg)
+    try:
+        from .folders import require_volume
+
+        require_volume(base)
+    except RuntimeError as e:  # external disk not connected: record the failure, write nothing
+        entry = {
+            "started_at": datetime.fromtimestamp(started).astimezone().isoformat(timespec="seconds"),
+            "started_ts": started, "trigger": trigger, "sources": [], "destinations": [],
+            "status": "error", "ok": False, "message": f"Папка архивов недоступна: {e}",
+            "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"), "duration_s": 0.0,
+        }
+        append_history(entry)
+        if cfg.get("notify_on_error", True):
+            notify("Резервная копия календарей", entry["message"][:200])
+        return entry
     base.mkdir(parents=True, exist_ok=True)
     staging = base / f".staging-{stamp}"
     shutil.rmtree(staging, ignore_errors=True)

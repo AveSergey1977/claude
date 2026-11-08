@@ -1,4 +1,5 @@
 import http.server
+import sys
 import json
 import os
 import tempfile
@@ -214,6 +215,15 @@ class EndToEnd(unittest.TestCase):
             time.sleep(0.05)
         self.assertEqual(gcalls, ["manual"])
         self.assertEqual(req("/api/open-folder", {"target": "gmail"})[0], 200)
+        # folders
+        code, body = req("/api/settings", {"local_dir": "relative/dir"})
+        self.assertEqual(code, 400)
+        self.assertIn("полный путь", json.loads(body)["error"])
+        st = json.loads(req("/api/status")[1])
+        self.assertEqual(st["local"]["setting"], str(self.local))
+        self.assertEqual(st["gmail"]["dir_default"], "~/MailBackups")
+        if sys.platform != "darwin":
+            self.assertEqual(req("/api/choose-folder", {"target": "gmail"})[0], 501)
         httpd.shutdown()
 
 

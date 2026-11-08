@@ -61,6 +61,14 @@ details ul{margin:6px 0 0;padding-left:18px}
 .grid.inner .card{padding:12px 14px}
 .bar{height:6px;border-radius:3px;background:var(--line);margin-top:8px;overflow:hidden}
 .bar>i{display:block;height:100%;background:var(--accent)}
+.folders{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px 16px;padding-top:4px;border-top:1px solid var(--line)}
+.folders h3{grid-column:1/-1;font-size:13px;margin:8px 0 0;font-weight:600}
+.pick{display:flex;gap:6px}
+.pick input{flex:1;min-width:0}
+.pick button{white-space:nowrap;padding:7px 10px}
+.hint{font-size:12px;color:var(--muted)}
+.notice{grid-column:1/-1;font-size:13px;background:var(--run-bg);border-radius:8px;padding:8px 12px}
+.notice:empty{display:none}
 </style>
 </head>
 <body>
@@ -113,7 +121,20 @@ details ul{margin:6px 0 0;padding-left:18px}
     </label>
     <label class="check"><input id="g-on" type="checkbox"> Копировать Gmail</label>
     <div class="srcs" id="srcs"></div>
+    <div class="folders">
+      <h3>Куда сохранять</h3>
+      <label>Архивы календарей
+        <span class="pick"><input id="dir-cal" type="text" spellcheck="false" autocomplete="off"><button type="button" data-pick="calendar">Выбрать…</button></span>
+        <span class="hint" id="dir-cal-h"></span>
+      </label>
+      <label>Копия Gmail
+        <span class="pick"><input id="dir-gmail" type="text" spellcheck="false" autocomplete="off"><button type="button" data-pick="gmail">Выбрать…</button></span>
+        <span class="hint" id="dir-gmail-h"></span>
+      </label>
+      <label class="check"><input id="move-existing" type="checkbox" checked> Перенести уже сохранённые копии в новую папку</label>
+    </div>
     <div class="row"><button type="submit">Сохранить</button><span class="msg" id="smsg"></span></div>
+    <div class="notice" id="notices"></div>
   </form>
 </section>
 
@@ -210,7 +231,13 @@ function render(st){
     $("keep-local").value = st.keep_local;
     $("keep-drive").value = st.drive.keep;
     $("drive-on").checked = st.drive.enabled;
+    $("dir-cal").value = st.local.setting || "";
+    $("dir-cal").placeholder = `${st.local.default} — стандартная папка`;
+    $("dir-cal-h").textContent = st.local.setting ? `Сейчас: ${st.local.dir}. Очистите поле, чтобы вернуть стандартную папку.` : `Сейчас: стандартная папка ${st.local.dir}`;
     if(st.gmail){
+      $("dir-gmail").value = st.gmail.dir_setting || "";
+      $("dir-gmail").placeholder = `${st.gmail.dir_default} — стандартная папка`;
+      $("dir-gmail-h").textContent = st.gmail.dir_setting ? `Сейчас: ${st.gmail.dir}. Очистите поле, чтобы вернуть стандартную папку.` : `Сейчас: стандартная папка ${st.gmail.dir}`;
       const gi = String(st.gmail.interval_hours);
       if(![...$("g-interval").options].some(o=>o.value===gi)) $("g-interval").add(new Option(hours(gi), gi));
       $("g-interval").value = gi;
@@ -323,10 +350,23 @@ $("settings").onsubmit = async ev => {
       interval_hours: Number(iv), keep_local: Number($("keep-local").value),
       drive_keep: Number($("keep-drive").value), drive_enabled: $("drive-on").checked, sources,
       gmail_enabled: $("g-on").checked, gmail_interval_hours: Number($("g-interval").value),
+      local_dir: $("dir-cal").value.trim(), gmail_dir: $("dir-gmail").value.trim(),
+      move_existing: $("move-existing").checked,
     });
     dirty = false; $("smsg").textContent = "Сохранено"; render(st);
+    $("notices").innerHTML = (st.notices||[]).map(n=>`<div>${esc(n)}</div>`).join("");
   }catch(e){ $("smsg").innerHTML = `<span class="e">${esc(e.message)}</span>`; }
 };
+document.querySelectorAll("[data-pick]").forEach(b => b.onclick = async () => {
+  const gm = b.dataset.pick === "gmail";
+  b.disabled = true; $("smsg").textContent = "Откройте окно выбора папки на Mac…";
+  try{
+    const r = await api("/api/choose-folder", {target: gm ? "gmail" : "calendar"});
+    if(!r.cancelled){ $(gm ? "dir-gmail" : "dir-cal").value = r.path; dirty = true; $("smsg").textContent = "Есть несохранённые изменения"; }
+    else $("smsg").textContent = dirty ? "Есть несохранённые изменения" : "";
+  }catch(e){ $("smsg").innerHTML = `<span class="e">${esc(e.message)}</span>`; }
+  b.disabled = false;
+});
 document.addEventListener("visibilitychange", () => { if(!document.hidden) refresh(); });
 refresh();
 </script>
