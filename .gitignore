@@ -1,2 +1,5 @@
 site/data/quotes.json
 __pycache__/
+
+# The lawyers catalog holds third-party personal data: never commit it to this public repository
+lawyers/*.xlsx
