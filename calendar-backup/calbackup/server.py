@@ -13,7 +13,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__, folders, gmail
+from . import __version__, folders, gmail, offsite
 from .config import (
     DEFAULTS,
     load_config,
@@ -118,6 +118,20 @@ def gmail_scheduler() -> Scheduler:
     return Scheduler(gmail.run_gmail, lambda: gmail.next_run_ts(load_config()), "gmail")
 
 
+def offsite_scheduler() -> Scheduler:
+    return Scheduler(offsite.run_offsite, lambda: offsite.next_run_ts(load_config()), "offsite")
+
+
+def offsite_payload(osched: Scheduler) -> dict:
+    try:
+        st = offsite.status(load_config())
+    except Exception as e:  # never break the panel
+        st = {"enabled": False, "targets": [], "error": str(e)}
+    st.update(running=osched.running, current=osched.current, last_error=osched.last_error,
+              next_run_ts=osched.next_run_ts(), history=offsite.history_entries()[:5])
+    return st
+
+
 def gmail_payload(gsched: Scheduler) -> dict:
     cfg = load_config()
     try:
@@ -134,7 +148,7 @@ def gmail_payload(gsched: Scheduler) -> dict:
     return st
 
 
-def status_payload(sched: Scheduler, gsched: Scheduler | None = None) -> dict:
+def status_payload(sched: Scheduler, gsched: Scheduler | None = None, osched: Scheduler | None = None) -> dict:
     cfg = load_config()
     hist = load_history()
     d = cfg.get("drive") or {}
@@ -167,6 +181,7 @@ def status_payload(sched: Scheduler, gsched: Scheduler | None = None) -> dict:
         "history": hist[:5],
         "history_total": len(hist),
         "gmail": gmail_payload(gsched) if gsched is not None else None,
+        "offsite": offsite_payload(osched) if osched is not None else None,
     }
 
 
@@ -208,6 +223,11 @@ def apply_settings(body: dict, sched: Scheduler | None = None, gsched: Scheduler
         g["enabled"] = bool(body["gmail_enabled"])
     if "gmail_interval_hours" in body:
         g["interval_hours"] = validate_interval(body["gmail_interval_hours"])
+    o = cfg.setdefault("offsite", {})
+    if "offsite_enabled" in body:
+        o["enabled"] = bool(body["offsite_enabled"])
+    if "offsite_interval_hours" in body:
+        o["interval_hours"] = validate_interval(body["offsite_interval_hours"])
     for s in cfg.get("sources", []):
         sid = s.get("id") or s.get("type")
         if sid in (body.get("sources") or {}):
@@ -259,8 +279,10 @@ class _nolock:
         return False
 
 
-def make_handler(sched: Scheduler, token: str, port: int, gsched: Scheduler | None = None):
+def make_handler(sched: Scheduler, token: str, port: int, gsched: Scheduler | None = None,
+                 osched: Scheduler | None = None):
     gsched = gsched or gmail_scheduler()
+    osched = osched or offsite_scheduler()
     panel = (Path(__file__).parent / "panel.html").read_text(encoding="utf-8")
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
@@ -297,7 +319,7 @@ def make_handler(sched: Scheduler, token: str, port: int, gsched: Scheduler | No
                 html = panel.replace("__TOKEN__", token).encode("utf-8")
                 return self._send(HTTPStatus.OK, html, "text/html; charset=utf-8")
             if self.path == "/api/status":
-                return self._json(HTTPStatus.OK, status_payload(sched, gsched))
+                return self._json(HTTPStatus.OK, status_payload(sched, gsched, osched))
             name = self.path.lstrip("/")
             if name == "favicon.ico":
                 name = "favicon.png"
@@ -341,7 +363,15 @@ def make_handler(sched: Scheduler, token: str, port: int, gsched: Scheduler | No
                     return self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Перенос копий не удался: {e}"})
                 sched.wake.set()
                 gsched.wake.set()
-                return self._json(HTTPStatus.OK, {**status_payload(sched, gsched), "notices": notices})
+                osched.wake.set()
+                return self._json(HTTPStatus.OK, {**status_payload(sched, gsched, osched), "notices": notices})
+            if self.path == "/api/offsite/run":
+                ocfg = offsite.settings(load_config())
+                if not ocfg.get("enabled") or not ocfg.get("targets"):
+                    return self._json(HTTPStatus.CONFLICT, {"error": "Вторая копия выключена или не настроена"})
+                if osched.start("manual"):
+                    return self._json(HTTPStatus.ACCEPTED, {"started": True})
+                return self._json(HTTPStatus.CONFLICT, {"error": "Вторая копия уже создаётся"})
             if self.path == "/api/choose-folder":
                 cfg = load_config()
                 gm = body.get("target") == "gmail"
@@ -402,10 +432,11 @@ def serve() -> None:
         raise SystemExit("Панель доступна только на localhost (panel_host)")
     sched = Scheduler()
     gsched = gmail_scheduler()
+    osched = offsite_scheduler()
     token = panel_token()
-    httpd = ThreadingHTTPServer((host, port), make_handler(sched, token, port, gsched))
-    threading.Thread(target=sched.loop, daemon=True).start()
-    threading.Thread(target=gsched.loop, daemon=True).start()
+    httpd = ThreadingHTTPServer((host, port), make_handler(sched, token, port, gsched, osched))
+    for s in (sched, gsched, osched):
+        threading.Thread(target=s.loop, daemon=True).start()
     log.info("panel: http://127.0.0.1:%d", port)
     print(f"Панель: http://127.0.0.1:{port}", flush=True)
     httpd.serve_forever()

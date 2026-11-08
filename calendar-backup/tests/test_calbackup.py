@@ -224,6 +224,13 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(st["gmail"]["dir_default"], "~/MailBackups")
         if sys.platform != "darwin":
             self.assertEqual(req("/api/choose-folder", {"target": "gmail"})[0], 501)
+        # second copy: off and unconfigured by default
+        self.assertFalse(st["offsite"]["enabled"])
+        self.assertEqual(req("/api/offsite/run", {})[0], 409)
+        code, st = req("/api/settings", {"offsite_enabled": True, "offsite_interval_hours": 12})
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(st)["offsite"]["interval_hours"], 12.0)
+        self.assertEqual(req("/api/offsite/run", {})[0], 409)   # still no targets
         httpd.shutdown()
 
 

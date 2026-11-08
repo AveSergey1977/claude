@@ -40,6 +40,8 @@ DEFAULTS: dict = {
     "sources": [],
     # Gmail: incremental local copy of the mailbox (see calbackup/gmail.py for all keys)
     "gmail": {"enabled": False, "interval_hours": 1, "local_dir": "~/MailBackups", "include_spam": False},
+    # second copy outside Google: restic repositories (see calbackup/offsite.py for all keys)
+    "offsite": {"enabled": False, "interval_hours": 24, "targets": []},
 }
 
 MIN_INTERVAL_HOURS = 0.25

@@ -23,7 +23,7 @@
 | Изменения | После первой загрузки — только изменения через историю Gmail (новые письма, удаления, метки). Раз в `reconcile_days` (7 дней), а также если Gmail больше не хранит точку истории, — полная сверка списка писем. |
 | Удалённые в Gmail | Не удаляются из копии: в индексе отмечается дата исчезновения из ящика. Если при сверке исчезло ≥ 5 % писем (не менее 20), запуск получает статус «Частично» с предупреждением. |
 | Целостность | Запись через временный файл; каждый запуск перепроверяет SHA-256 у 50 случайных писем; полная проверка — `calbackup gmail-verify`. Загрузка останавливается, если на диске меньше `min_free_gb` (5 ГБ). |
-| Google Drive | Копия Gmail на Google Drive **не загружается**: это тот же аккаунт Google, и при его потере или взломе такая копия пропала бы вместе с почтой. Вторая независимая копия — отдельный этап (зашифрованное хранилище вне Google). |
+| Google Drive | Копия Gmail на Google Drive **не загружается**: это тот же аккаунт Google, и при его потере или взломе такая копия пропала бы вместе с почтой. Независимая копия — «Вторая копия» ниже. |
 
 Включение:
 
@@ -34,6 +34,58 @@
 `gmail.readonly` относится к разрешениям с ограниченным доступом ([Google: Gmail API scopes](https://developers.google.com/gmail/api/auth/scopes)). Для приложения типа **Internal** в Google Workspace проверка приложения Google не требуется; при типе External в статусе Testing действует то же ограничение на 7 дней, что и для календарей (см. ниже). Администратор Google Workspace может запретить сторонним приложениям доступ к Gmail; тогда авторизация завершится ошибкой.
 
 Восстановление: `calbackup gmail-export --out ~/Desktop/mail.mbox` (фильтры `--label`, `--since`, `--until`, `--skip-gone`) создаёт файл mbox, который импортируется в Apple Mail (Файл → Импорт почтовых ящиков) или Thunderbird. Отдельное письмо `.eml` открывается двойным щелчком.
+
+## Вторая копия (вне Google)
+
+Зашифрованная копия архивов календарей и копии Gmail в хранилище, не связанном с аккаунтом Google. Используется [restic](https://restic.net): данные шифруются на Mac до отправки, повторяющиеся части хранятся один раз, данные сжимаются. Восстановить копию можно на любом компьютере стандартной программой restic, зная адрес хранилища и пароль; эта программа для восстановления не нужна.
+
+| Функция | Реализация |
+|---|---|
+| Что копируется | Папка архивов календарей (без распакованной `latest/` и временных файлов), копия Gmail (письма `.eml`), служебная папка: согласованный снимок индекса Gmail, `config.json` (без паролей и токенов), `RESTORE.txt` с порядком восстановления |
+| Куда | Одно или несколько хранилищ (`offsite.targets`): Hetzner Storage Box по SFTP (рекомендуется), любое S3-совместимое хранилище, внешний диск. Внешний диск, не подключённый в момент запуска, пропускается |
+| Расписание | По умолчанию раз в сутки; меняется в панели |
+| Срок хранения | 14 ежедневных, 8 еженедельных, 24 ежемесячных и 10 ежегодных копий (`offsite.keep`); очистка старых копий раз в неделю |
+| Проверка | Раз в неделю `restic check` с чтением 5 % данных; в панели — объём хранилища и результат проверки |
+| Ошибки | Статус «Частично» или «Ошибка» и уведомление macOS; отдельно — предупреждение, если у хранилища нет успешной копии дольше 3 дней (`stale_days`) |
+| Секреты | Пароль хранилища и ключи облачных хранилищ — в Связке ключей; restic получает их через окружение процесса, не через командную строку |
+
+**Пароль хранилища — единственный ключ к копии.** Если он утрачен, копию не восстановит никто, включая Вас и поставщика хранилища. Запишите его и храните отдельно от Mac.
+
+### Настройка: Hetzner Storage Box
+
+Storage Box — хранилище Hetzner Online GmbH (Германия) с доступом по SFTP. Тариф BX11 — 1 ТБ ([Hetzner: BX11](https://www.hetzner.com/de/storage/storage-box/bx11/)).
+
+1. Заказать Storage Box и в консоли Hetzner включить **SSH support** (порт 23) ([Hetzner: Storage Box](https://docs.hetzner.com/storage/storage-box/general)).
+2. Включить **автоматические снимки** Storage Box (например, ежедневно) ([Hetzner: Creating snapshots](https://docs.hetzner.com/storage/storage-box/getting-started/creating-snapshots)). Снимками управляет консоль Hetzner, а не SSH-ключ на Mac, поэтому при краже ключа удалённые копии восстанавливаются из снимка.
+3. Ключ для доступа без пароля:
+   ```bash
+   calbackup offsite-ssh-key
+   ```
+   и выполнить выведенную команду `cat … | ssh -p23 uXXXXX@uXXXXX.your-storagebox.de install-ssh-key` — один раз потребуется пароль Storage Box ([Hetzner: Add SSH keys](https://docs.hetzner.com/storage/storage-box/ssh-keys/add-ssh-keys)).
+4. Пароль хранилища (создаётся случайный и сохраняется в Связке ключей; запишите его):
+   ```bash
+   calbackup offsite-password
+   ```
+5. В `config.json` в разделе `offsite.targets` заменить `uXXXXX` на имя пользователя Storage Box; `repository` — `sftp://uXXXXX@uXXXXX.your-storagebox.de:23/restic-mac`.
+6. В панели отметить «Создавать вторую копию» и сохранить. Хранилище создаётся при первом запуске. Первая копия большого ящика Gmail может занять часы.
+
+### Другие хранилища
+
+| Хранилище | `repository` | Дополнительно |
+|---|---|---|
+| Внешний диск | `/Volumes/<Диск>/restic` | — |
+| S3-совместимое (Backblaze B2, Wasabi, AWS) | `s3:https://<endpoint>/<bucket>/restic` | `"env_keyring": {"AWS_ACCESS_KEY_ID": "s3-id", "AWS_SECRET_ACCESS_KEY": "s3-key"}` и `calbackup set-secret s3-id`, `calbackup set-secret s3-key`. Для ключа без права удаления — `"prune": false` |
+
+### Восстановление
+
+| Команда | Действие |
+|---|---|
+| `calbackup offsite-snapshots` | Список копий в хранилище |
+| `calbackup offsite-restore --to ~/Restore` | Последняя копия в пустую папку (`--snapshot ID` — другая копия) |
+| `calbackup offsite-check --full` | Полная проверка с чтением всех данных |
+| `calbackup restic -- <команда>` | Любая команда restic с настройками хранилища |
+
+Без этой программы: `restic -r <repository> restore latest --target ~/Restore` (для Storage Box дополнительно `-o sftp.args="-i <ключ>"`); порядок — в `offsite-meta/RESTORE.txt` внутри копии.
 
 ## Источники
 
@@ -51,7 +103,7 @@ git clone https://github.com/avesergey1977/claude.git && cd claude/calendar-back
 ./install-macos.sh
 ```
 
-Скрипт создаёт виртуальное окружение в `~/Library/Application Support/CalendarBackup`, команду `~/.local/bin/calbackup` и LaunchAgent `com.calendar-backup.agent` (запуск при входе в систему, перезапуск при сбое). Повторный запуск обновляет программу, сохраняя настройки, токены и историю. Удаление: `./uninstall-macos.sh` (копии в `~/CalendarBackups` не удаляются).
+Скрипт создаёт виртуальное окружение в `~/Library/Application Support/CalendarBackup`, устанавливает restic (из Homebrew, если он есть, иначе официальный выпуск 0.19.1 с проверкой SHA-256 по файлу сумм выпуска), команду `~/.local/bin/calbackup` и LaunchAgent `com.calendar-backup.agent` (запуск при входе в систему, перезапуск при сбое). Повторный запуск обновляет программу, сохраняя настройки, токены и историю. Удаление: `./uninstall-macos.sh` (копии в `~/CalendarBackups` не удаляются).
 
 Настройки: `~/Library/Application Support/CalendarBackup/config.json` (создаётся из `config.example.json`).
 
@@ -110,6 +162,10 @@ git clone https://github.com/avesergey1977/claude.git && cd claude/calendar-back
 | `calbackup gmail-status` | Состояние копии Gmail и последние 5 запусков |
 | `calbackup gmail-verify` | Проверка SHA-256 всех сохранённых писем |
 | `calbackup gmail-export --out ФАЙЛ.mbox` | Выгрузка писем в mbox для импорта в почтовую программу |
+| `calbackup offsite-run` | Вторая копия сейчас |
+| `calbackup offsite-status` | Состояние второй копии |
+| `calbackup offsite-password` | Пароль хранилища второй копии (`--show` — показать, `--set` — ввести существующий) |
+| `calbackup offsite-ssh-key` | SSH-ключ для Storage Box |
 | `calbackup set-secret ИМЯ` | Пароль в Связку ключей |
 | `calbackup grant-macos` | Доступ к Календарю macOS |
 | `calbackup paths` | Пути к настройкам, токенам, журналу |
@@ -122,10 +178,12 @@ git clone https://github.com/avesergey1977/claude.git && cd claude/calendar-back
 
 - Панель слушает только `127.0.0.1`; изменяющие запросы требуют токен, выдаваемый странице при запуске; запросы с чужим `Host` отклоняются.
 - Пароли и секретные ссылки — в Связке ключей; OAuth-токен Google и настройки — в файлах с правами `600`.
-- Архивы и копия Gmail не шифруются: на диске Mac их защищает FileVault, на Google Drive — доступ к аккаунту. Копия Gmail индексируется Spotlight, как и другие файлы пользователя.
+- Архивы и копия Gmail на Mac не шифруются: их защищает FileVault; на Google Drive — доступ к аккаунту. Вторая копия шифруется restic до отправки. Копия Gmail индексируется Spotlight, как и другие файлы пользователя.
 
 ## Тесты
 
 ```bash
 pip install -r requirements.txt && python3 -m unittest discover -s tests -v
 ```
+
+Тесты второй копии выполняются с настоящим restic (`RESTIC_BIN` или `restic` в `PATH`), тест SFTP — при наличии `sshd` и прав root; иначе они пропускаются.

@@ -120,6 +120,14 @@ details ul{margin:6px 0 0;padding-left:18px}
       </select>
     </label>
     <label class="check"><input id="g-on" type="checkbox"> Копировать Gmail</label>
+    <label>Вторая копия (вне Google)
+      <select id="o-interval">
+        <option value="6">каждые 6 часов</option><option value="12">каждые 12 часов</option>
+        <option value="24">раз в сутки</option><option value="48">раз в двое суток</option>
+        <option value="168">раз в неделю</option>
+      </select>
+    </label>
+    <label class="check"><input id="o-on" type="checkbox"> Создавать вторую копию</label>
     <div class="srcs" id="srcs"></div>
     <div class="folders">
       <h3>Куда сохранять</h3>
@@ -167,6 +175,20 @@ details ul{margin:6px 0 0;padding-left:18px}
   <table>
     <thead><tr><th>Время</th><th>Запуск</th><th>Результат</th><th>Новых</th><th>Исчезли из ящика</th><th>Метки</th><th>В очереди</th><th>Длит.</th><th>Подробности</th></tr></thead>
     <tbody id="g-hist"><tr><td colspan="9" class="empty">Нет данных</td></tr></tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card" id="offsite" style="margin-top:16px">
+  <div class="sechead">
+    <div><h2>Вторая копия — вне Google, зашифрована</h2><div class="sub" id="o-state">—</div></div>
+    <div style="display:flex;gap:8px"><button class="primary" id="o-run">Создать вторую копию сейчас</button></div>
+  </div>
+  <div class="grid inner" id="o-targets"></div>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Время</th><th>Запуск</th><th>Результат</th><th>Хранилища</th><th>Добавлено</th><th>Длит.</th><th>Подробности</th></tr></thead>
+    <tbody id="o-hist"><tr><td colspan="7" class="empty">Нет данных</td></tr></tbody>
   </table>
   </div>
 </section>
@@ -243,6 +265,12 @@ function render(st){
       $("g-interval").value = gi;
       $("g-on").checked = st.gmail.enabled;
     }
+    if(st.offsite){
+      const oi = String(st.offsite.interval_hours);
+      if(![...$("o-interval").options].some(o=>o.value===oi)) $("o-interval").add(new Option(hours(oi), oi));
+      $("o-interval").value = oi;
+      $("o-on").checked = st.offsite.enabled;
+    }
     $("srcs").innerHTML = st.sources.length
       ? st.sources.map(s=>`<label class="check"><input type="checkbox" data-src="${esc(s.id)}" ${s.enabled?"checked":""}> ${esc(s.id)} <span class="sub">(${esc(TYPE[s.type]||s.type)})</span></label>`).join("")
       : `<span class="msg e">Источники не настроены: добавьте их в config.json (см. README).</span>`;
@@ -264,6 +292,7 @@ function render(st){
       <td><details><summary>${esc(e.status==="ok"?"показать":e.message)}</summary><ul>${det}</ul>${e.archive?`<div class="sub">${esc(e.archive)}</div>`:""}</details></td>
     </tr>`}).join("") : `<tr><td colspan="7" class="empty">Копий ещё не было</td></tr>`;
   renderGmail(st.gmail);
+  renderOffsite(st.offsite);
 }
 
 const MODE = {full:"первичная загрузка", reconcile:"полная сверка", incremental:"изменения"};
@@ -318,12 +347,49 @@ function renderGmail(g){
     </tr>`}).join("") : `<tr><td colspan="9" class="empty">Синхронизаций ещё не было</td></tr>`;
 }
 
+function renderOffsite(o){
+  if(!o){ $("offsite").hidden = true; return; }
+  const h = (o.history||[])[0];
+  const ready = o.enabled && (o.targets||[]).length && o.restic;
+  $("o-run").disabled = o.running || !ready;
+  $("o-run").textContent = o.running ? "Выполняется…" : "Создать вторую копию сейчас";
+  let state;
+  if(!o.restic) state = `<span class="e">Программа restic не найдена: запустите install-macos.sh заново</span>`;
+  else if(!(o.targets||[]).length) state = "Хранилище не настроено: см. README, раздел «Вторая копия»";
+  else if(!o.enabled) state = "Выключено · включите «Создавать вторую копию» в настройках";
+  else if(o.running){ const p = o.current?.progress; state = `<span class="pill running">Выполняется</span> ${p?`${esc(p.target)}: ${p.percent} %`:"подготовка"}`; }
+  else if(h) state = `<span class="pill ${STATUS[h.status]?.[1]}">${STATUS[h.status]?.[0]}</span> ${ago(h.started_ts)} · следующая ${until(o.next_run_ts)}`;
+  else state = "Копий ещё не было";
+  if(o.last_error) state += ` <span class="e">· ${esc(o.last_error)}</span>`;
+  $("o-state").innerHTML = state;
+  $("o-targets").innerHTML = (o.targets||[]).map(t=>`<div class="card">
+    <div class="k">${esc(t.id)}${t.enabled===false?" · выключено":""}</div>
+    <div class="v">${t.last_success_ts ? ago(t.last_success_ts) : "копий нет"}</div>
+    <div class="s">${esc(t.repository)}</div>
+    <div class="s">${t.repo_size!=null?`объём хранилища ${bytes(t.repo_size)} · `:""}${t.last_check_ts?`проверено ${dt(t.last_check_ts)} ${t.last_check_ok?"✓":"✗"}`:"проверки не было"}</div>
+  </div>`).join("");
+  $("o-hist").innerHTML = (o.history||[]).length ? o.history.map(e=>{
+    const [label, cls] = STATUS[e.status] || ["?", ""];
+    const ts = e.targets||[];
+    const added = ts.reduce((a,t)=>a+(t.added_packed||0),0);
+    const det = ts.map(t=>`<li>${esc(t.id)}: ${t.skipped?"пропущено":(t.error?"✗":"✓")}${t.snapshot?` копия ${esc(t.snapshot)}, файлов ${t.files_total} (новых ${t.files_new}), ${bytes(t.bytes_total)}`:""}${t.created?" · хранилище создано":""}${t.pruned?" · старые копии очищены":""}${t.checked?" · проверено":""}${t.error?` — <span class="e">${esc(t.error)}</span>`:""}${(t.warnings||[]).map(w=>`<br><span class="e">${esc(w)}</span>`).join("")}</li>`).join("");
+    return `<tr>
+      <td class="num">${dt(e.started_at)}</td>
+      <td>${esc(TRIGGER[e.trigger]||e.trigger)}</td>
+      <td><span class="pill ${cls}">${label}</span></td>
+      <td class="num">${ts.filter(t=>t.done).length} / ${ts.length}</td>
+      <td class="num">${bytes(added)}</td>
+      <td class="num">${dur(e.duration_s)}</td>
+      <td><details><summary>${esc(e.status==="ok"?"показать":e.message)}</summary><ul>${det}</ul></details></td>
+    </tr>`}).join("") : `<tr><td colspan="7" class="empty">Копий ещё не было</td></tr>`;
+}
+
 let timer;
 async function refresh(){
   clearTimeout(timer);
   try{ render(await api("/api/status")); }
   catch(e){ $("state").innerHTML = `<span class="pill error">Нет связи</span> ${esc(e.message)}`; }
-  timer = setTimeout(refresh, (last?.running || last?.gmail?.running) ? 3000 : 30000);
+  timer = setTimeout(refresh, (last?.running || last?.gmail?.running || last?.offsite?.running) ? 3000 : 30000);
 }
 
 $("run").onclick = async () => {
@@ -332,6 +398,11 @@ $("run").onclick = async () => {
   setTimeout(refresh, 500);
 };
 $("open").onclick = () => api("/api/open-folder", {}).catch(e=>alert(e.message));
+$("o-run").onclick = async () => {
+  $("o-run").disabled = true;
+  try{ await api("/api/offsite/run", {}); }catch(e){ alert(e.message); }
+  setTimeout(refresh, 500);
+};
 $("g-open").onclick = () => api("/api/open-folder", {target:"gmail"}).catch(e=>alert(e.message));
 $("g-run").onclick = async () => {
   $("g-run").disabled = true;
@@ -352,6 +423,7 @@ $("settings").onsubmit = async ev => {
       gmail_enabled: $("g-on").checked, gmail_interval_hours: Number($("g-interval").value),
       local_dir: $("dir-cal").value.trim(), gmail_dir: $("dir-gmail").value.trim(),
       move_existing: $("move-existing").checked,
+      offsite_enabled: $("o-on").checked, offsite_interval_hours: Number($("o-interval").value),
     });
     dirty = false; $("smsg").textContent = "Сохранено"; render(st);
     $("notices").innerHTML = (st.notices||[]).map(n=>`<div>${esc(n)}</div>`).join("");
