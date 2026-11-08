@@ -38,6 +38,8 @@ DEFAULTS: dict = {
         "keep": 120,
     },
     "sources": [],
+    # Gmail: incremental local copy of the mailbox (see calbackup/gmail.py for all keys)
+    "gmail": {"enabled": False, "interval_hours": 1, "local_dir": "~/MailBackups", "include_spam": False},
 }
 
 MIN_INTERVAL_HOURS = 0.25
@@ -61,8 +63,8 @@ def config_path() -> Path:
     return app_home() / "config.json"
 
 
-def history_path() -> Path:
-    return app_home() / "history.json"
+def history_path(name: str = "history") -> Path:
+    return app_home() / f"{name}.json"
 
 
 def _atomic_write(path: Path, data: str) -> None:
@@ -102,9 +104,10 @@ def validate_interval(value) -> float:
     return v
 
 
-def load_history() -> list:
+def load_history(name: str = "history") -> list:
+    """Run history, newest first: "history" for calendars, "gmail_history" for Gmail."""
     with _lock:
-        p = history_path()
+        p = history_path(name)
         if not p.exists():
             return []
         try:
@@ -115,12 +118,12 @@ def load_history() -> list:
             return []
 
 
-def append_history(entry: dict) -> None:
+def append_history(entry: dict, name: str = "history") -> None:
     with _lock:
-        hist = load_history()
+        hist = load_history(name)
         hist.insert(0, entry)
         del hist[HISTORY_LIMIT:]
-        _atomic_write(history_path(), json.dumps(hist, ensure_ascii=False, indent=2) + "\n")
+        _atomic_write(history_path(name), json.dumps(hist, ensure_ascii=False, indent=2) + "\n")
 
 
 def local_dir(cfg: dict) -> Path:

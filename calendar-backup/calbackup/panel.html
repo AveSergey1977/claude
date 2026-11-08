@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Резервные копии календарей</title>
+<title>Резервные копии календарей и почты</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -55,13 +55,19 @@ td:last-child{min-width:240px}
 details ul{margin:6px 0 0;padding-left:18px}
 .e{color:var(--err)}
 .empty{color:var(--muted);padding:16px 8px}
+.sechead{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sechead h2{margin:0}
+.grid.inner{margin:12px 0 16px}
+.grid.inner .card{padding:12px 14px}
+.bar{height:6px;border-radius:3px;background:var(--line);margin-top:8px;overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--accent)}
 </style>
 </head>
 <body>
 <main>
 <header>
   <div>
-    <h1>Резервные копии календарей</h1>
+    <h1>Резервные копии календарей и почты</h1>
     <div class="sub" id="state">Загрузка…</div>
   </div>
   <div style="display:flex;gap:8px">
@@ -97,17 +103,49 @@ details ul{margin:6px 0 0;padding-left:18px}
     <label>Хранить копий на компьютере<input id="keep-local" type="number" min="1" max="10000"></label>
     <label>Хранить копий на Google Drive<input id="keep-drive" type="number" min="1" max="10000"></label>
     <label class="check"><input id="drive-on" type="checkbox"> Загружать на Google Drive</label>
+    <label>Синхронизация Gmail
+      <select id="g-interval">
+        <option value="0.25">каждые 15 минут</option><option value="0.5">каждые 30 минут</option>
+        <option value="1">каждый час</option><option value="2">каждые 2 часа</option>
+        <option value="6">каждые 6 часов</option><option value="12">каждые 12 часов</option>
+        <option value="24">раз в сутки</option>
+      </select>
+    </label>
+    <label class="check"><input id="g-on" type="checkbox"> Копировать Gmail</label>
     <div class="srcs" id="srcs"></div>
     <div class="row"><button type="submit">Сохранить</button><span class="msg" id="smsg"></span></div>
   </form>
 </section>
 
-<section class="card">
-  <h2>Последние 5 обновлений</h2>
+<section class="card" style="margin-bottom:16px">
+  <h2>Последние 5 обновлений календарей</h2>
   <div class="tablewrap">
   <table>
     <thead><tr><th>Время</th><th>Запуск</th><th>Результат</th><th>Размер</th><th>Календари / записи</th><th>Длит.</th><th>Подробности</th></tr></thead>
     <tbody id="hist"><tr><td colspan="7" class="empty">Нет данных</td></tr></tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card" id="gmail">
+  <div class="sechead">
+    <div><h2>Gmail</h2><div class="sub" id="g-state">—</div></div>
+    <div style="display:flex;gap:8px">
+      <button id="g-open">Открыть папку</button>
+      <button class="primary" id="g-run">Синхронизировать сейчас</button>
+    </div>
+  </div>
+  <div class="grid inner">
+    <div class="card"><div class="k">Сохранено писем</div><div class="v" id="g-count">—</div><div class="s" id="g-count-s"></div></div>
+    <div class="card"><div class="k">Объём копии</div><div class="v" id="g-size">—</div><div class="s" id="g-size-s"></div></div>
+    <div class="card"><div class="k">Очередь загрузки</div><div class="v" id="g-queue">—</div><div class="s" id="g-queue-s"></div><div class="bar" id="g-bar" hidden><i></i></div></div>
+    <div class="card"><div class="k">Удалены из ящика</div><div class="v" id="g-gone">—</div><div class="s">копии писем сохранены</div></div>
+    <div class="card"><div class="k">Следующая синхронизация</div><div class="v" id="g-next">—</div><div class="s" id="g-next-s"></div></div>
+  </div>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Время</th><th>Запуск</th><th>Результат</th><th>Новых</th><th>Исчезли из ящика</th><th>Метки</th><th>В очереди</th><th>Длит.</th><th>Подробности</th></tr></thead>
+    <tbody id="g-hist"><tr><td colspan="9" class="empty">Нет данных</td></tr></tbody>
   </table>
   </div>
 </section>
@@ -124,7 +162,7 @@ function esc(s){return String(s ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"
 function bytes(n){if(n==null)return"—";const u=["Б","КБ","МБ","ГБ"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return(i?n.toFixed(1):n)+" "+u[i]}
 function dt(v){const d=typeof v==="number"?new Date(v*1000):new Date(v);return d.toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"})}
 function ago(ts){const s=Math.round(Date.now()/1000-ts);if(s<60)return"только что";const m=Math.round(s/60);if(m<60)return m+" мин назад";const h=Math.round(m/60);if(h<48)return h+" ч назад";return Math.round(h/24)+" дн назад"}
-function until(ts){const s=Math.round(ts-Date.now()/1000);if(s<=0)return"сейчас";const m=Math.round(s/60);if(m<60)return"через "+m+" мин";const h=Math.floor(m/60);return"через "+h+" ч "+(m%60)+" мин"}
+function until(ts){const s=Math.round(ts-Date.now()/1000);if(s<=0)return"сейчас";if(s<60)return"менее чем через минуту";const m=Math.round(s/60);if(m<60)return"через "+m+" мин";const h=Math.floor(m/60);return"через "+h+" ч "+(m%60)+" мин"}
 function dur(s){return s==null?"—":(s<60?s.toFixed(1)+" с":Math.floor(s/60)+" мин "+Math.round(s%60)+" с")}
 function hours(h){h=Number(h);if(h===24)return"раз в сутки";if(h===168)return"раз в неделю";if(h%24===0)return"каждые "+(h/24)+" сут.";return"каждые "+h+" ч"}
 
@@ -172,6 +210,12 @@ function render(st){
     $("keep-local").value = st.keep_local;
     $("keep-drive").value = st.drive.keep;
     $("drive-on").checked = st.drive.enabled;
+    if(st.gmail){
+      const gi = String(st.gmail.interval_hours);
+      if(![...$("g-interval").options].some(o=>o.value===gi)) $("g-interval").add(new Option(hours(gi), gi));
+      $("g-interval").value = gi;
+      $("g-on").checked = st.gmail.enabled;
+    }
     $("srcs").innerHTML = st.sources.length
       ? st.sources.map(s=>`<label class="check"><input type="checkbox" data-src="${esc(s.id)}" ${s.enabled?"checked":""}> ${esc(s.id)} <span class="sub">(${esc(TYPE[s.type]||s.type)})</span></label>`).join("")
       : `<span class="msg e">Источники не настроены: добавьте их в config.json (см. README).</span>`;
@@ -192,6 +236,59 @@ function render(st){
       <td class="num">${dur(e.duration_s)}</td>
       <td><details><summary>${esc(e.status==="ok"?"показать":e.message)}</summary><ul>${det}</ul>${e.archive?`<div class="sub">${esc(e.archive)}</div>`:""}</details></td>
     </tr>`}).join("") : `<tr><td colspan="7" class="empty">Копий ещё не было</td></tr>`;
+  renderGmail(st.gmail);
+}
+
+const MODE = {full:"первичная загрузка", reconcile:"полная сверка", incremental:"изменения"};
+function renderGmail(g){
+  if(!g){ $("gmail").hidden = true; return; }
+  const acc = (g.accounts||[])[0] || null, h = (g.history||[])[0];
+  $("g-run").disabled = g.running || !g.enabled;
+  $("g-run").textContent = g.running ? "Выполняется…" : "Синхронизировать сейчас";
+  let state;
+  if(!g.enabled) state = `Выключено · включите «Копировать Gmail» в настройках; нужен доступ к Gmail: <code>calbackup auth-google</code>`;
+  else if(g.running){ const p = g.current?.progress; state = `<span class="pill running">Выполняется</span> ${p?`загружено ${p.fetched}, в очереди ${p.queue}`:"подготовка"}`; }
+  else if(h) state = `<span class="pill ${h.in_progress&&h.status==="ok"?"running":STATUS[h.status]?.[1]}">${h.in_progress&&h.status==="ok"?"Загрузка продолжается":STATUS[h.status]?.[0]}</span> ${ago(h.started_ts)} · ${esc(h.message||"")}`;
+  else state = "Синхронизаций ещё не было";
+  if(acc) state = `${esc(acc.account)} · ${state}`;
+  if(g.last_error) state += ` <span class="e">· ${esc(g.last_error)}</span>`;
+  $("g-state").innerHTML = state;
+  const total = h?.mailbox_total;
+  $("g-count").textContent = acc ? (acc.present ?? 0).toLocaleString("ru-RU") : "—";
+  $("g-count-s").textContent = total!=null ? `в ящике по данным Gmail: ${Number(total).toLocaleString("ru-RU")}` : "";
+  $("g-size").textContent = acc ? bytes(acc.bytes) : "—";
+  $("g-size-s").textContent = acc?.dir || g.dir || "";
+  const q = g.running && g.current?.progress ? g.current.progress.queue : acc?.queue;
+  $("g-queue").textContent = q==null ? "—" : (q ? q.toLocaleString("ru-RU") : "пусто");
+  $("g-queue-s").textContent = acc?.queue_failed ? `с ошибкой загрузки: ${acc.queue_failed}` : (q ? "докачивается в следующих запусках" : "");
+  const done = acc ? acc.stored : 0, all = done + (q||0);
+  $("g-bar").hidden = !q;
+  if(q) $("g-bar").firstElementChild.style.width = (all ? Math.round(100*done/all) : 0) + "%";
+  $("g-gone").textContent = acc ? (acc.gone ?? 0).toLocaleString("ru-RU") : "—";
+  $("g-next").textContent = !g.enabled ? "выключено" : (g.running ? "после текущей" : until(g.next_run_ts));
+  $("g-next-s").textContent = g.enabled && !g.running && g.next_run_ts ? `${dt(g.next_run_ts)} · ${hours(g.interval_hours)}` : "";
+  $("g-hist").innerHTML = (g.history||[]).length ? g.history.map(e=>{
+    const [label, cls] = STATUS[e.status] || ["?", ""];
+    const det = [
+      e.account ? `<li>Аккаунт: ${esc(e.account)}</li>` : "",
+      e.mode ? `<li>Режим: ${esc(MODE[e.mode]||e.mode)}${e.listed!=null?`, писем в ящике по списку: ${e.listed}`:""}</li>` : "",
+      e.bytes_fetched ? `<li>Загружено: ${bytes(e.bytes_fetched)}</li>` : "",
+      e.skipped ? `<li>Пропущено (спам или удалено до загрузки): ${e.skipped}</li>` : "",
+      e.fetch_errors ? `<li class="e">Ошибок загрузки: ${e.fetch_errors}</li>` : "",
+      ...(e.warnings||[]).map(w=>`<li class="e">${esc(w)}</li>`),
+      e.status==="error" ? `<li class="e">${esc(e.message)}</li>` : "",
+    ].join("");
+    return `<tr>
+      <td class="num">${dt(e.started_at)}</td>
+      <td>${esc(TRIGGER[e.trigger]||e.trigger)}</td>
+      <td><span class="pill ${cls}">${label}</span></td>
+      <td class="num">${e.fetched??"—"}</td>
+      <td class="num">${e.newly_gone??"—"}</td>
+      <td class="num">${e.labels_changed??"—"}</td>
+      <td class="num">${e.queue??"—"}</td>
+      <td class="num">${dur(e.duration_s)}</td>
+      <td><details><summary>${esc(e.status==="ok"?"показать":e.message)}</summary><ul>${det}</ul></details></td>
+    </tr>`}).join("") : `<tr><td colspan="9" class="empty">Синхронизаций ещё не было</td></tr>`;
 }
 
 let timer;
@@ -199,7 +296,7 @@ async function refresh(){
   clearTimeout(timer);
   try{ render(await api("/api/status")); }
   catch(e){ $("state").innerHTML = `<span class="pill error">Нет связи</span> ${esc(e.message)}`; }
-  timer = setTimeout(refresh, last?.running ? 3000 : 30000);
+  timer = setTimeout(refresh, (last?.running || last?.gmail?.running) ? 3000 : 30000);
 }
 
 $("run").onclick = async () => {
@@ -208,6 +305,12 @@ $("run").onclick = async () => {
   setTimeout(refresh, 500);
 };
 $("open").onclick = () => api("/api/open-folder", {}).catch(e=>alert(e.message));
+$("g-open").onclick = () => api("/api/open-folder", {target:"gmail"}).catch(e=>alert(e.message));
+$("g-run").onclick = async () => {
+  $("g-run").disabled = true;
+  try{ await api("/api/gmail/run", {}); }catch(e){ alert(e.message); }
+  setTimeout(refresh, 500);
+};
 $("interval").onchange = () => { $("custom-wrap").hidden = $("interval").value !== "custom"; };
 $("settings").oninput = () => { dirty = true; $("smsg").textContent = "Есть несохранённые изменения"; };
 $("settings").onsubmit = async ev => {
@@ -219,6 +322,7 @@ $("settings").onsubmit = async ev => {
     const st = await api("/api/settings", {
       interval_hours: Number(iv), keep_local: Number($("keep-local").value),
       drive_keep: Number($("keep-drive").value), drive_enabled: $("drive-on").checked, sources,
+      gmail_enabled: $("g-on").checked, gmail_interval_hours: Number($("g-interval").value),
     });
     dirty = false; $("smsg").textContent = "Сохранено"; render(st);
   }catch(e){ $("smsg").innerHTML = `<span class="e">${esc(e.message)}</span>`; }

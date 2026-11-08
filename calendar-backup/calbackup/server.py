@@ -13,7 +13,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__
+from . import __version__, gmail
 from .config import (
     load_config,
     load_history,
@@ -26,13 +26,18 @@ from .engine import AlreadyRunning, run_backup
 
 log = logging.getLogger("calbackup")
 
-RETRY_AFTER_FAILURE_S = 3600
 STATIC_DIR = Path(__file__).parent / "static"
-STATIC = {"favicon.svg": "image/svg+xml", "favicon.png": "image/png", "apple-touch-icon.png": "image/png"}  # a failed run is retried after at most 1 hour
+RETRY_AFTER_FAILURE_S = 3600  # a failed run is retried after at most 1 hour
+STATIC = {"favicon.svg": "image/svg+xml", "favicon.png": "image/png", "apple-touch-icon.png": "image/png"}
 
 
 class Scheduler:
-    def __init__(self):
+    """Runs one job (calendar backup by default, or Gmail) on its schedule and on demand."""
+
+    def __init__(self, run_fn=None, next_due=None, label: str = "calendar"):
+        self.run_fn = run_fn or run_backup
+        self._next_due = next_due or self._calendar_next
+        self.label = label
         self.wake = threading.Event()
         self._lock = threading.Lock()
         self.running = False
@@ -40,7 +45,8 @@ class Scheduler:
         self.last_error: str | None = None
         self.last_attempt_ts = 0.0
 
-    def next_run_ts(self) -> float:
+    @staticmethod
+    def _calendar_next() -> float:
         cfg = load_config()
         interval = float(cfg.get("interval_hours", 6)) * 3600
         hist = load_history()
@@ -51,6 +57,15 @@ class Scheduler:
         if last.get("status") != "ok":
             interval = min(interval, RETRY_AFTER_FAILURE_S)
         return start + interval
+
+    def next_run_ts(self):
+        """Epoch seconds of the next scheduled run, or None when the job is switched off."""
+        return self._next_due()
+
+    def _progress(self, info: dict) -> None:
+        cur = self.current
+        if cur is not None:
+            cur["progress"] = info
 
     def start(self, trigger: str) -> bool:
         with self._lock:
@@ -64,12 +79,12 @@ class Scheduler:
 
     def _work(self, trigger: str) -> None:
         try:
-            run_backup(trigger)
+            self.run_fn(trigger, progress=self._progress)
             self.last_error = None
         except AlreadyRunning as e:  # a CLI run holds the lock
             self.last_error = str(e)
         except Exception as e:  # never kill the daemon
-            log.exception("run crashed")
+            log.exception("%s run crashed", self.label)
             self.last_error = str(e)
         finally:
             with self._lock:
@@ -81,21 +96,44 @@ class Scheduler:
         while True:
             try:
                 due = self.next_run_ts()
-                if self.last_error:  # crashed or locked run: back off 5 minutes
-                    due = max(due, self.last_attempt_ts + 300)
-                # wall clock: after sleep/wake of the Mac an overdue run starts at once
-                if time.time() >= due and not self.running:
-                    self.start("schedule")
-                    due = time.time() + 60
-                timeout = max(1.0, min(30.0, due - time.time()))
+                if due is None:
+                    timeout = 30.0
+                else:
+                    if self.last_error:  # crashed or locked run: back off 5 minutes
+                        due = max(due, self.last_attempt_ts + 300)
+                    # wall clock: after sleep/wake of the Mac an overdue run starts at once
+                    if time.time() >= due and not self.running:
+                        self.start("schedule")
+                        due = time.time() + 60
+                    timeout = max(1.0, min(30.0, due - time.time()))
             except Exception:
-                log.exception("scheduler tick failed")
+                log.exception("%s scheduler tick failed", self.label)
                 timeout = 30.0
             self.wake.wait(timeout)
             self.wake.clear()
 
 
-def status_payload(sched: Scheduler) -> dict:
+def gmail_scheduler() -> Scheduler:
+    return Scheduler(gmail.run_gmail, lambda: gmail.next_run_ts(load_config()), "gmail")
+
+
+def gmail_payload(gsched: Scheduler) -> dict:
+    cfg = load_config()
+    try:
+        st = gmail.status(cfg)
+    except Exception as e:  # never break the panel
+        st = {"enabled": False, "accounts": [], "error": str(e)}
+    st.update(
+        running=gsched.running,
+        current=gsched.current,
+        last_error=gsched.last_error,
+        next_run_ts=gsched.next_run_ts(),
+        history=gmail.history_entries()[:5],
+    )
+    return st
+
+
+def status_payload(sched: Scheduler, gsched: Scheduler | None = None) -> dict:
     cfg = load_config()
     hist = load_history()
     d = cfg.get("drive") or {}
@@ -121,6 +159,7 @@ def status_payload(sched: Scheduler) -> dict:
         ],
         "history": hist[:5],
         "history_total": len(hist),
+        "gmail": gmail_payload(gsched) if gsched is not None else None,
     }
 
 
@@ -141,6 +180,11 @@ def apply_settings(body: dict) -> dict:
         drive["keep"] = v
     if "drive_enabled" in body:
         drive["enabled"] = bool(body["drive_enabled"])
+    g = cfg.setdefault("gmail", {})
+    if "gmail_enabled" in body:
+        g["enabled"] = bool(body["gmail_enabled"])
+    if "gmail_interval_hours" in body:
+        g["interval_hours"] = validate_interval(body["gmail_interval_hours"])
     for s in cfg.get("sources", []):
         sid = s.get("id") or s.get("type")
         if sid in (body.get("sources") or {}):
@@ -149,7 +193,8 @@ def apply_settings(body: dict) -> dict:
     return cfg
 
 
-def make_handler(sched: Scheduler, token: str, port: int):
+def make_handler(sched: Scheduler, token: str, port: int, gsched: Scheduler | None = None):
+    gsched = gsched or gmail_scheduler()
     panel = (Path(__file__).parent / "panel.html").read_text(encoding="utf-8")
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
@@ -186,7 +231,7 @@ def make_handler(sched: Scheduler, token: str, port: int):
                 html = panel.replace("__TOKEN__", token).encode("utf-8")
                 return self._send(HTTPStatus.OK, html, "text/html; charset=utf-8")
             if self.path == "/api/status":
-                return self._json(HTTPStatus.OK, status_payload(sched))
+                return self._json(HTTPStatus.OK, status_payload(sched, gsched))
             name = self.path.lstrip("/")
             if name == "favicon.ico":
                 name = "favicon.png"
@@ -224,9 +269,17 @@ def make_handler(sched: Scheduler, token: str, port: int):
                 except (ValueError, TypeError) as e:
                     return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
                 sched.wake.set()
-                return self._json(HTTPStatus.OK, status_payload(sched))
+                gsched.wake.set()
+                return self._json(HTTPStatus.OK, status_payload(sched, gsched))
+            if self.path == "/api/gmail/run":
+                if not gmail.settings(load_config()).get("enabled"):
+                    return self._json(HTTPStatus.CONFLICT, {"error": "Копирование Gmail выключено в настройках"})
+                if gsched.start("manual"):
+                    return self._json(HTTPStatus.ACCEPTED, {"started": True})
+                return self._json(HTTPStatus.CONFLICT, {"error": "Копирование Gmail уже выполняется"})
             if self.path == "/api/open-folder":
-                folder = local_dir(load_config())
+                cfg = load_config()
+                folder = gmail.base_dir(gmail.settings(cfg)) if body.get("target") == "gmail" else local_dir(cfg)
                 folder.mkdir(parents=True, exist_ok=True)
                 if sys.platform == "darwin":
                     subprocess.Popen(["open", str(folder)])
@@ -263,9 +316,11 @@ def serve() -> None:
     if host not in ("127.0.0.1", "localhost", "::1"):
         raise SystemExit("Панель доступна только на localhost (panel_host)")
     sched = Scheduler()
+    gsched = gmail_scheduler()
     token = panel_token()
-    httpd = ThreadingHTTPServer((host, port), make_handler(sched, token, port))
+    httpd = ThreadingHTTPServer((host, port), make_handler(sched, token, port, gsched))
     threading.Thread(target=sched.loop, daemon=True).start()
+    threading.Thread(target=gsched.loop, daemon=True).start()
     log.info("panel: http://127.0.0.1:%d", port)
     print(f"Панель: http://127.0.0.1:{port}", flush=True)
     httpd.serve_forever()

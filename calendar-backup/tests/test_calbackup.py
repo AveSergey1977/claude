@@ -151,10 +151,12 @@ class EndToEnd(unittest.TestCase):
         from calbackup import server
 
         sched = server.Scheduler()
-        httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(sched, "TKN", 0))
+        gcalls = []
+        gsched = server.Scheduler(lambda t, progress=None: gcalls.append(t), lambda: None, "gmail")
+        httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(sched, "TKN", 0, gsched))
         port = httpd.server_address[1]
         # rebuild the handler with the real port so the Host check matches
-        httpd.RequestHandlerClass = server.make_handler(sched, "TKN", port)
+        httpd.RequestHandlerClass = server.make_handler(sched, "TKN", port, gsched)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{port}"
 
@@ -194,6 +196,24 @@ class EndToEnd(unittest.TestCase):
                 break
             time.sleep(0.1)
         self.assertEqual(config.load_history()[0]["trigger"], "manual")
+
+        # Gmail: off by default, switched on from the panel, started manually
+        st = json.loads(req("/api/status")[1])
+        self.assertFalse(st["gmail"]["enabled"])
+        self.assertIsNone(st["gmail"]["next_run_ts"])
+        self.assertEqual(req("/api/gmail/run", {})[0], 409)
+        self.assertEqual(req("/api/settings", {"gmail_interval_hours": 0.1})[0], 400)
+        code, st = req("/api/settings", {"gmail_enabled": True, "gmail_interval_hours": 2})
+        self.assertEqual(code, 200)
+        self.assertTrue(json.loads(st)["gmail"]["enabled"])
+        self.assertEqual(config.load_config()["gmail"]["interval_hours"], 2.0)
+        self.assertEqual(req("/api/gmail/run", {})[0], 202)
+        for _ in range(100):
+            if not gsched.running:
+                break
+            time.sleep(0.05)
+        self.assertEqual(gcalls, ["manual"])
+        self.assertEqual(req("/api/open-folder", {"target": "gmail"})[0], 200)
         httpd.shutdown()
 
 

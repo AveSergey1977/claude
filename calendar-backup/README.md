@@ -1,6 +1,6 @@
 # Calendar Backup
 
-Автоматическое резервное копирование календарей (Google, iCloud, любые CalDAV, ICS-ссылки, все календари Calendar.app на Mac) в локальную папку и на Google Drive. Управление — через локальную панель `http://127.0.0.1:8765`.
+Автоматическое резервное копирование календарей (Google, iCloud, любые CalDAV, ICS-ссылки, все календари Calendar.app на Mac) в локальную папку и на Google Drive, а также инкрементальная локальная копия Gmail. Управление — через локальную панель `http://127.0.0.1:8765`.
 
 ## Что делает
 
@@ -12,6 +12,28 @@
 | Google Drive | Папка «Calendar Backups» в «Моём диске». Режим `api` (загрузка через Drive API, доступ только к файлам, созданным программой — scope `drive.file`) или `folder` (копирование в папку Google Drive для компьютера). Хранится 120 последних, настраивается. |
 | Панель | Частота; сколько копий хранить; включение Drive и отдельных источников; размер последней копии (сжатый и несжатый); объём всех локальных копий; время, способ запуска, результат, размер, число календарей и записей, длительность и подробности последних 5 запусков; кнопка «Создать копию сейчас»; «Открыть папку». |
 | Ошибки | Результат «Частично», если отказал один источник или Drive; «Ошибка», если данных нет (архив не создаётся, старые копии не затираются). Уведомление macOS при любом сбое. Журнал: `~/Library/Application Support/CalendarBackup/calbackup.log`. |
+
+## Gmail
+
+| Функция | Реализация |
+|---|---|
+| Что копируется | Все письма ящика, включая «Отправленные», черновики и Корзину; «Спам» — только при `"include_spam": true`. Каждое письмо — исходный файл RFC 822 (`.eml`) в том виде, в каком его отдаёт Gmail API, без пересборки. |
+| Где | `~/MailBackups/<адрес>/messages/ГГГГ/ММ/<id>.eml`, индекс `index.sqlite` (метки, отправитель, тема, дата, SHA-256), список меток `labels.json`. Папка — права `700`, файлы — `600`. |
+| Расписание | По умолчанию каждый час; меняется в панели (от 15 мин до суток). Первая загрузка большого ящика идёт частями: не дольше `max_minutes_per_run` (50 мин) за запуск, следующая часть — через 30 с после окончания предыдущей. |
+| Изменения | После первой загрузки — только изменения через историю Gmail (новые письма, удаления, метки). Раз в `reconcile_days` (7 дней), а также если Gmail больше не хранит точку истории, — полная сверка списка писем. |
+| Удалённые в Gmail | Не удаляются из копии: в индексе отмечается дата исчезновения из ящика. Если при сверке исчезло ≥ 5 % писем (не менее 20), запуск получает статус «Частично» с предупреждением. |
+| Целостность | Запись через временный файл; каждый запуск перепроверяет SHA-256 у 50 случайных писем; полная проверка — `calbackup gmail-verify`. Загрузка останавливается, если на диске меньше `min_free_gb` (5 ГБ). |
+| Google Drive | Копия Gmail на Google Drive **не загружается**: это тот же аккаунт Google, и при его потере или взломе такая копия пропала бы вместе с почтой. Вторая независимая копия — отдельный этап (зашифрованное хранилище вне Google). |
+
+Включение:
+
+1. В Google Cloud Console в том же проекте: APIs & Services → Library → включить **Gmail API**.
+2. `calbackup auth-google` — повторно, чтобы выдать разрешение на чтение почты (`gmail.readonly`). На экране согласия отметьте все пункты. До повторной авторизации календари копируются как прежде, а Gmail сообщает, что доступа нет.
+3. В панели отметить «Копировать Gmail» и сохранить (или `"gmail": {"enabled": true}` в `config.json`).
+
+`gmail.readonly` относится к разрешениям с ограниченным доступом ([Google: Gmail API scopes](https://developers.google.com/gmail/api/auth/scopes)). Для приложения типа **Internal** в Google Workspace проверка приложения Google не требуется; при типе External в статусе Testing действует то же ограничение на 7 дней, что и для календарей (см. ниже). Администратор Google Workspace может запретить сторонним приложениям доступ к Gmail; тогда авторизация завершится ошибкой.
+
+Восстановление: `calbackup gmail-export --out ~/Desktop/mail.mbox` (фильтры `--label`, `--since`, `--until`, `--skip-gone`) создаёт файл mbox, который импортируется в Apple Mail (Файл → Импорт почтовых ящиков) или Thunderbird. Отдельное письмо `.eml` открывается двойным щелчком.
 
 ## Источники
 
@@ -38,11 +60,11 @@ git clone https://github.com/avesergey1977/claude.git && cd claude/calendar-back
 ### Google Calendar и Google Drive (режим `api`)
 
 1. [Google Cloud Console](https://console.cloud.google.com/) → создать проект.
-2. APIs & Services → Library → включить **Google Calendar API** и **Google Drive API**.
+2. APIs & Services → Library → включить **Google Calendar API** и **Google Drive API** (для копии почты — также **Gmail API**).
 3. OAuth consent screen → User type **Internal** (доступен для аккаунтов Google Workspace). При типе External в статусе Testing refresh-токен истекает через 7 дней и копирование Google будет прекращаться еженедельно ([Google: Refresh token expiration](https://developers.google.com/identity/protocols/oauth2#expiration)).
 4. Credentials → Create credentials → OAuth client ID → **Desktop app** → скачать JSON и сохранить как
    `~/Library/Application Support/CalendarBackup/google_client_secret.json`.
-5. `calbackup auth-google` — откроется браузер; разрешения: чтение календарей и доступ к файлам, созданным приложением.
+5. `calbackup auth-google` — откроется браузер; разрешения: чтение календарей, доступ к файлам, созданным приложением, и чтение почты.
 
 Ограничить набор календарей: `calendar_ids` (только перечисленные) или `exclude_ids`.
 
@@ -74,7 +96,11 @@ git clone https://github.com/avesergey1977/claude.git && cd claude/calendar-back
 |---|---|
 | `calbackup run` | Копия сейчас (не пересекается с запуском из панели) |
 | `calbackup status` | Последние 5 запусков |
-| `calbackup auth-google` | Авторизация Google |
+| `calbackup auth-google` | Авторизация Google (календари, Drive, Gmail) |
+| `calbackup gmail-sync` | Синхронизация Gmail сейчас |
+| `calbackup gmail-status` | Состояние копии Gmail и последние 5 запусков |
+| `calbackup gmail-verify` | Проверка SHA-256 всех сохранённых писем |
+| `calbackup gmail-export --out ФАЙЛ.mbox` | Выгрузка писем в mbox для импорта в почтовую программу |
 | `calbackup set-secret ИМЯ` | Пароль в Связку ключей |
 | `calbackup grant-macos` | Доступ к Календарю macOS |
 | `calbackup paths` | Пути к настройкам, токенам, журналу |
@@ -87,7 +113,7 @@ git clone https://github.com/avesergey1977/claude.git && cd claude/calendar-back
 
 - Панель слушает только `127.0.0.1`; изменяющие запросы требуют токен, выдаваемый странице при запуске; запросы с чужим `Host` отклоняются.
 - Пароли и секретные ссылки — в Связке ключей; OAuth-токен Google и настройки — в файлах с правами `600`.
-- Архивы не шифруются: на диске Mac их защищает FileVault, на Google Drive — доступ к аккаунту.
+- Архивы и копия Gmail не шифруются: на диске Mac их защищает FileVault, на Google Drive — доступ к аккаунту. Копия Gmail индексируется Spotlight, как и другие файлы пользователя.
 
 ## Тесты
 

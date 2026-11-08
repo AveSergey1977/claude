@@ -26,11 +26,12 @@ class AlreadyRunning(RuntimeError):
     pass
 
 
-class _RunLock:
+class RunLock:
     """Inter-process lock, so a CLI run and the daemon never overlap."""
 
-    def __init__(self):
-        self.path = app_home() / "run.lock"
+    def __init__(self, name: str = "run.lock", busy: str = "резервное копирование уже выполняется"):
+        self.path = app_home() / name
+        self.busy = busy
         self.fh = None
 
     def __enter__(self):
@@ -42,7 +43,7 @@ class _RunLock:
             fcntl.flock(self.fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             self.fh.close()
-            raise AlreadyRunning("резервное копирование уже выполняется")
+            raise AlreadyRunning(self.busy)
         return self
 
     def __exit__(self, *exc):
@@ -57,7 +58,7 @@ def _short(e: BaseException) -> str:
     return (msg[:400] + "…") if len(msg) > 400 else msg
 
 
-def _notify(title: str, text: str) -> None:
+def notify(title: str, text: str) -> None:
     if sys.platform != "darwin":
         return
     script = f"display notification {json.dumps(text)} with title {json.dumps(title)}"
@@ -94,8 +95,8 @@ def _replace_latest(staging: Path, base: Path) -> None:
     shutil.rmtree(old, ignore_errors=True)
 
 
-def run_backup(trigger: str = "manual") -> dict:
-    with _RunLock():
+def run_backup(trigger: str = "manual", progress=None) -> dict:
+    with RunLock():
         return _run(trigger)
 
 
@@ -192,5 +193,5 @@ def _run(trigger: str) -> dict:
     append_history(entry)
     log.info("backup %s: %s", entry["status"], entry["message"])
     if entry["status"] != "ok" and cfg.get("notify_on_error", True):
-        _notify("Резервная копия календарей", entry["message"][:200])
+        notify("Резервная копия календарей", entry["message"][:200])
     return entry
