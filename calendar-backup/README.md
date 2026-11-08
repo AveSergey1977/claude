@@ -58,7 +58,7 @@ git clone https://github.com/avesergey1977/claude.git && cd claude/calendar-back
 
 1. В `config.json` поставить `"enabled": true` у источника `mac`.
 2. `calbackup grant-macos` — macOS запросит доступ к Календарю и выведет список найденных календарей. Если запроса нет: Системные настройки → Конфиденциальность и безопасность → Календари.
-3. Исключить аккаунты, уже охваченные `google`/`caldav`: `"exclude_accounts": ["iCloud", "sergei@avetikov.com"]` (имена — из вывода шага 2).
+3. Исключить аккаунты, уже охваченные `google`/`caldav`: `"exclude_accounts": ["iCloud", "you@example.com"]` (имена — из вывода шага 2).
 
 ### Ссылки ICS
 
