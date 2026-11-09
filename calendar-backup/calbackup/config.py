@@ -28,6 +28,16 @@ DEFAULTS: dict = {
     "local_dir": "~/CalendarBackups",
     "keep_local": 120,
     "notify_on_error": True,
+    # Who makes backups on this machine:
+    #   "always"   - by schedule (a server, or a single Mac)
+    #   "fallback" - only when the newest backup on Drive is older than interval + grace
+    #   "never"    - this machine only mirrors archives from Drive
+    "produce": "always",
+    # Download missing archives from Google Drive into local_dir (the Mac with a server)
+    "sync_from_drive": False,
+    "sync_interval_minutes": 30,
+    "fallback_grace_minutes": 30,
+    "host_tag": "",
     "drive": {
         # "api"    - upload through the Google Drive API (OAuth, see README)
         # "folder" - copy into a folder synced by Google Drive for desktop
@@ -63,6 +73,13 @@ def config_path() -> Path:
 
 def history_path() -> Path:
     return app_home() / "history.json"
+
+
+def sync_state_path() -> Path:
+    return app_home() / "sync.json"
+
+
+PRODUCE_MODES = ("always", "fallback", "never")
 
 
 def _atomic_write(path: Path, data: str) -> None:
@@ -118,10 +135,26 @@ def load_history() -> list:
 def append_history(entry: dict) -> None:
     with _lock:
         hist = load_history()
-        hist.insert(0, entry)
+        hist.append(entry)
+        # newest first by the time the backup was made (synced archives arrive late)
+        hist.sort(key=lambda e: float(e.get("started_ts") or 0), reverse=True)
         del hist[HISTORY_LIMIT:]
         _atomic_write(history_path(), json.dumps(hist, ensure_ascii=False, indent=2) + "\n")
 
 
 def local_dir(cfg: dict) -> Path:
     return Path(os.path.expanduser(cfg["local_dir"]))
+
+
+def load_sync_state() -> dict:
+    try:
+        with open(sync_state_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_sync_state(state: dict) -> None:
+    with _lock:
+        _atomic_write(sync_state_path(), json.dumps(state, ensure_ascii=False, indent=2) + "\n")

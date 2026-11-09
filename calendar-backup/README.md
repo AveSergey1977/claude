@@ -8,7 +8,7 @@
 |---|---|
 | Расписание | По умолчанию каждые 6 ч; меняется в панели (от 15 мин до 7 дней) без перезапуска. Отсчёт по настенным часам: если Mac спал, просроченная копия создаётся сразу после пробуждения. После сбоя — повтор не позднее чем через 1 ч. |
 | Копия | Один zip на запуск: `<источник>/<календарь>.ics` + `manifest.json`; для Google дополнительно `<календарь>.json` (полный ответ API без потерь). Архив проверяется (`testzip`) до публикации. |
-| Этот компьютер | `~/CalendarBackups/calendar-backup-ГГГГММДД-ЧЧММСС.zip`; распакованная последняя копия — `~/CalendarBackups/latest/`. Хранится 120 последних (≈30 дней при 6 ч), настраивается. |
+| Этот компьютер | `~/CalendarBackups/calendar-backup-ГГГГММДД-ЧЧММССZ-<компьютер>.zip` (время UTC и метка создавшего компьютера); распакованная последняя копия — `~/CalendarBackups/latest/`. Хранится 120 последних (≈30 дней при 6 ч), настраивается. |
 | Google Drive | Папка «Calendar Backups» в «Моём диске». Режим `api` (загрузка через Drive API, доступ только к файлам, созданным программой — scope `drive.file`) или `folder` (копирование в папку Google Drive для компьютера). Хранится 120 последних, настраивается. |
 | Панель | Частота; сколько копий хранить; включение Drive и отдельных источников; размер последней копии (сжатый и несжатый); объём всех локальных копий; время, способ запуска, результат, размер, число календарей и записей, длительность и подробности последних 5 запусков; кнопка «Создать копию сейчас»; «Открыть папку». |
 | Ошибки | Результат «Частично», если отказал один источник или Drive; «Ошибка», если данных нет (архив не создаётся, старые копии не затираются). Уведомление macOS при любом сбое. Журнал: `~/Library/Application Support/CalendarBackup/calbackup.log`. |
@@ -68,18 +68,57 @@ git clone https://github.com/avesergey1977/claude.git && cd claude/calendar-back
 
 `"drive": {"mode": "folder"}` — копирование в папку Google Drive для компьютера (определяется автоматически в `~/Library/CloudStorage/GoogleDrive-*/My Drive`, иначе `folder_path`). Календари Google — источником `ics` по «секретному адресу в формате iCal» ([Google: Share your calendar](https://support.google.com/calendar/answer/37648)). Ограничение: такой адрес не передаёт напоминания, и его нужно добавлять для каждого календаря отдельно.
 
+## Сервер (копии, пока Mac выключен)
+
+Схема: сервер создаёт копии по расписанию и загружает их на Google Drive; Mac при запуске, после пробуждения и каждые 30 мин скачивает недостающие архивы из Drive в `~/CalendarBackups`, а сам создаёт копию только если новейшая копия на Drive старше интервала + 30 мин (сервер недоступен). Оба используют один OAuth-клиент, поэтому Mac видит файлы сервера при праве `drive.file`.
+
+### Установка на сервер (Debian/Ubuntu, Fedora/RHEL; от root)
+
+```bash
+git clone -b claude/youthful-knuth-yfumwh https://github.com/avesergey1977/claude.git /root/calendar-backup-src
+cd /root/calendar-backup-src/calendar-backup && ./install-linux.sh
+```
+
+Создаются системный пользователь `calbackup` (без входа в систему), программа в `/opt/calendar-backup`, данные в `/var/lib/calendar-backup` (права 700), служба systemd `calendar-backup` с ограничениями (`ProtectSystem=strict`, `ProtectHome`, `NoNewPrivileges`), команда `calbackup` (выполняется от имени `calbackup`). Обновление: `git pull` и повторный `./install-linux.sh`. Удаление: `./uninstall-linux.sh` (`--purge` — вместе с данными).
+
+### Доступы на сервере
+
+1. Токен Google — с Mac, одной командой (передаётся по SSH, на диск сервера пишется с правами 600):
+   ```bash
+   ssh root@СЕРВЕР calbackup import-google-token < "$HOME/Library/Application Support/CalendarBackup/google_token.json"
+   ```
+   Альтернатива — отдельный вход на сервере: скопировать `google_client_secret.json` в `/var/lib/calendar-backup/` и выполнить `calbackup auth-google --no-browser` (инструкция с SSH-туннелем выводится на экран).
+2. iCloud: `ssh -t root@СЕРВЕР calbackup set-secret icloud`; в `/var/lib/calendar-backup/config.json` у источника `icloud` — Apple ID и `"enabled": true`; затем `systemctl restart calendar-backup`. Пароли на сервере хранятся в `/var/lib/calendar-backup/secrets.json` (права 600, только пользователь `calbackup`).
+3. Проверка: `calbackup run` и `calbackup doctor` на сервере.
+
+### Панель сервера
+
+Слушает только `127.0.0.1` сервера. С Mac — через SSH-туннель:
+```bash
+ssh -N -L 8766:127.0.0.1:8765 root@СЕРВЕР
+```
+и `http://127.0.0.1:8766` в браузере.
+
+### Mac в режиме зеркала
+
+В панели Mac: «Этот компьютер создаёт копии» → **только если копия сервера запаздывает**; включить **Скачивать недостающие копии с Google Drive**; «Сохранить». Кнопка «Скачать с Drive» — проверка немедленно. В истории колонка «Где создана» показывает, какой компьютер создал копию; при задержке сервера панель показывает «Сервер запаздывает».
+
+Источник `macos` (Exchange/Outlook и прочие аккаунты Calendar.app) на сервере недоступен; при необходимости Mac остаётся единственным, кто его копирует (режим «сам, по расписанию»).
+
 ## Команды
 
 | Команда | Действие |
 |---|---|
 | `calbackup run` | Копия сейчас (не пересекается с запуском из панели) |
+| `calbackup sync` | Скачать с Google Drive недостающие копии |
+| `calbackup import-google-token` | Установить токен Google, поданный на stdin (на сервере) |
 | `calbackup status` | Последние 5 запусков |
 | `calbackup auth-google` | Авторизация Google |
-| `calbackup set-secret ИМЯ` | Пароль в Связку ключей |
+| `calbackup set-secret ИМЯ` | Пароль: на Mac — в Связку ключей, на сервере — в `secrets.json` (600) |
 | `calbackup grant-macos` | Доступ к Календарю macOS |
 | `calbackup paths` | Пути к настройкам, токенам, журналу |
 | `calbackup doctor` | Диагностика, если панель пишет «Нет связи»: служба, порт, конфигурация, последние строки журналов |
-| `calbackup restart` | Перезапуск службы (или загрузка, если она не загружена) |
+| `calbackup restart` | Перезапуск службы на Mac; на сервере — `systemctl restart calendar-backup` |
 
 ## Восстановление
 
@@ -87,12 +126,14 @@ git clone https://github.com/avesergey1977/claude.git && cd claude/calendar-back
 
 ## Безопасность
 
-- Панель слушает только `127.0.0.1`; изменяющие запросы требуют токен, выдаваемый странице при запуске; запросы с чужим `Host` отклоняются.
+- Панель слушает только `127.0.0.1`; изменяющие запросы требуют токен страницы; запросы с `Host`, отличным от `127.0.0.1`/`localhost`, отклоняются (любой порт — для SSH-туннеля).
+- Скачанные с Drive архивы проверяются по MD5 и целостности zip до помещения в папку; распаковка в `latest/` отклоняет пути вне папки.
+- На сервере календарные данные хранятся на диске VPS незашифрованными (провайдер имеет физический доступ к диску); доступ по SSH — только по ключу.
 - Пароли и секретные ссылки — в Связке ключей; OAuth-токен Google и настройки — в файлах с правами `600`.
 - Архивы не шифруются: на диске Mac их защищает FileVault, на Google Drive — доступ к аккаунту.
 
 ## Тесты
 
 ```bash
-pip install -r requirements.txt && python3 -m unittest discover -s tests -v
+pip install -r requirements.txt && python3 -m unittest discover -s tests -t . -v
 ```

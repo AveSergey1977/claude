@@ -14,21 +14,62 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import __version__
+from .archives import host_tag
 from .config import (
+    PRODUCE_MODES,
     load_config,
     load_history,
+    load_sync_state,
     local_dir,
     save_config,
     validate_interval,
 )
 from .destinations import detect_drive_folder, local_usage
 from .engine import AlreadyRunning, run_backup
+from .sync import sync_from_drive
 
 log = logging.getLogger("calbackup")
 
-RETRY_AFTER_FAILURE_S = 3600
+RETRY_AFTER_FAILURE_S = 3600  # a failed run is retried after at most 1 hour
+SLEEP_GAP_S = 120  # a pause between scheduler ticks longer than this means the Mac slept
 STATIC_DIR = Path(__file__).parent / "static"
-STATIC = {"favicon.svg": "image/svg+xml", "favicon.png": "image/png", "apple-touch-icon.png": "image/png"}  # a failed run is retried after at most 1 hour
+STATIC = {"favicon.svg": "image/svg+xml", "favicon.png": "image/png", "apple-touch-icon.png": "image/png"}
+LOCAL_HOSTNAMES = {"127.0.0.1", "localhost", "[::1]"}
+
+
+def _own_runs(hist: list) -> list:
+    return [e for e in hist if e.get("trigger") != "sync"]
+
+
+def newest_backup_ts(hist: list, sync_state: dict) -> float:
+    """Newest backup known here: made locally, downloaded, or seen on Drive."""
+    ts = [float(e.get("started_ts") or 0) for e in hist if e.get("archive")]
+    remote = (sync_state.get("newest_remote") or {}).get("ts")
+    if remote:
+        ts.append(float(remote))
+    return max(ts) if ts else 0.0
+
+
+def backup_due(cfg: dict, hist: list, sync_state: dict, now: float) -> float | None:
+    """When this machine should make its next backup (None: never)."""
+    produce = cfg.get("produce", "always")
+    interval = float(cfg.get("interval_hours", 6)) * 3600
+    own = _own_runs(hist)
+    last = own[0] if own else None
+    if produce == "never":
+        return None
+    if produce == "always":
+        if not last:
+            return now
+        start = float(last.get("started_ts") or 0)
+        return start + (interval if last.get("status") == "ok" else min(interval, RETRY_AFTER_FAILURE_S))
+    # fallback: only when the newest backup anywhere is overdue
+    grace = float(cfg.get("fallback_grace_minutes", 30)) * 60
+    newest = newest_backup_ts(hist, sync_state)
+    due = newest + interval + grace if newest else now
+    if last and last.get("status") != "ok" and float(last.get("started_ts") or 0) >= newest:
+        due = max(due, float(last["started_ts"]) + RETRY_AFTER_FAILURE_S)
+    return due
 
 
 class Scheduler:
@@ -39,37 +80,48 @@ class Scheduler:
         self.current: dict | None = None
         self.last_error: str | None = None
         self.last_attempt_ts = 0.0
+        self.last_tick = 0.0
+        self.next_sync_ts = time.time()  # sync once right after start
 
-    def next_run_ts(self) -> float:
-        cfg = load_config()
-        interval = float(cfg.get("interval_hours", 6)) * 3600
-        hist = load_history()
-        if not hist:
-            return time.time()
-        last = hist[0]
-        start = float(last.get("started_ts") or 0)
-        if last.get("status") != "ok":
-            interval = min(interval, RETRY_AFTER_FAILURE_S)
-        return start + interval
+    def next_run_ts(self, cfg: dict | None = None, now: float | None = None) -> float | None:
+        cfg = cfg or load_config()
+        due = backup_due(cfg, load_history(), load_sync_state(), time.time() if now is None else now)
+        if due is not None and self.last_error:  # crashed or locked run: back off 5 minutes
+            due = max(due, self.last_attempt_ts + 300)
+        return due
 
-    def start(self, trigger: str) -> bool:
+    def start(self, kind: str, trigger: str) -> bool:
         with self._lock:
             if self.running:
                 return False
             self.running = True
-            self.current = {"trigger": trigger, "started_ts": time.time()}
+            self.current = {"kind": kind, "trigger": trigger, "started_ts": time.time()}
             self.last_attempt_ts = time.time()
-        threading.Thread(target=self._work, args=(trigger,), daemon=True).start()
+        threading.Thread(target=self._work, args=(kind, trigger), daemon=True).start()
         return True
 
-    def _work(self, trigger: str) -> None:
+    def _work(self, kind: str, trigger: str) -> None:
         try:
-            run_backup(trigger)
+            cfg = load_config()
+            if kind == "sync":
+                sync_from_drive(trigger)
+                self.next_sync_ts = time.time() + float(cfg.get("sync_interval_minutes", 30)) * 60
+            else:
+                if trigger == "schedule" and cfg.get("produce") == "fallback":
+                    if cfg.get("sync_from_drive"):
+                        sync_from_drive("before-fallback")
+                        self.next_sync_ts = time.time() + float(cfg.get("sync_interval_minutes", 30)) * 60
+                    due = backup_due(cfg, load_history(), load_sync_state(), time.time())
+                    if due is None or due > time.time():
+                        log.info("fallback: a fresh backup is on Drive, nothing to do")
+                        return
+                    trigger = "fallback"
+                run_backup(trigger)
             self.last_error = None
         except AlreadyRunning as e:  # a CLI run holds the lock
             self.last_error = str(e)
         except Exception as e:  # never kill the daemon
-            log.exception("run crashed")
+            log.exception("%s crashed", kind)
             self.last_error = str(e)
         finally:
             with self._lock:
@@ -79,18 +131,29 @@ class Scheduler:
 
     def loop(self) -> None:
         while True:
+            timeout = 30.0
             try:
-                due = self.next_run_ts()
-                if self.last_error:  # crashed or locked run: back off 5 minutes
-                    due = max(due, self.last_attempt_ts + 300)
-                # wall clock: after sleep/wake of the Mac an overdue run starts at once
-                if time.time() >= due and not self.running:
-                    self.start("schedule")
-                    due = time.time() + 60
-                timeout = max(1.0, min(30.0, due - time.time()))
+                now = time.time()
+                cfg = load_config()
+                if self.last_tick and now - self.last_tick > SLEEP_GAP_S:
+                    log.info("woke up after %.0f s", now - self.last_tick)
+                    self.next_sync_ts = now  # catch up with the server at once
+                self.last_tick = now
+                sync_on = bool(cfg.get("sync_from_drive"))
+                due = self.next_run_ts(cfg, now)
+                if not self.running:
+                    if sync_on and now >= self.next_sync_ts:
+                        self.start("sync", "schedule")
+                    elif due is not None and now >= due:
+                        self.start("backup", "schedule")
+                waits = [30.0]
+                if due is not None:
+                    waits.append(due - now)
+                if sync_on:
+                    waits.append(self.next_sync_ts - now)
+                timeout = max(1.0, min(waits))
             except Exception:
                 log.exception("scheduler tick failed")
-                timeout = 30.0
             self.wake.wait(timeout)
             self.wake.clear()
 
@@ -98,15 +161,29 @@ class Scheduler:
 def status_payload(sched: Scheduler) -> dict:
     cfg = load_config()
     hist = load_history()
+    sync_state = load_sync_state()
     d = cfg.get("drive") or {}
+    interval_s = float(cfg.get("interval_hours", 6)) * 3600
+    grace_s = float(cfg.get("fallback_grace_minutes", 30)) * 60
+    newest = newest_backup_ts(hist, sync_state)
     return {
         "version": __version__,
+        "host_tag": host_tag(cfg),
         "running": sched.running,
         "current": sched.current,
         "last_error": sched.last_error,
-        "next_run_ts": sched.next_run_ts(),
+        "next_run_ts": sched.next_run_ts(cfg),
         "interval_hours": cfg.get("interval_hours"),
         "keep_local": cfg.get("keep_local"),
+        "produce": cfg.get("produce", "always"),
+        "sync": {
+            "enabled": bool(cfg.get("sync_from_drive")),
+            "interval_minutes": cfg.get("sync_interval_minutes", 30),
+            "next_ts": sched.next_sync_ts if cfg.get("sync_from_drive") else None,
+            "state": sync_state,
+        },
+        "newest_backup_ts": newest or None,
+        "stale": bool(newest) and time.time() - newest > interval_s + grace_s,
         "local": {"dir": str(local_dir(cfg)), **local_usage(local_dir(cfg))},
         "drive": {
             "enabled": bool(d.get("enabled")),
@@ -133,6 +210,19 @@ def apply_settings(body: dict) -> dict:
         if not 1 <= v <= 10000:
             raise ValueError("Число локальных копий: от 1 до 10000")
         cfg["keep_local"] = v
+    if "produce" in body:
+        if body["produce"] not in PRODUCE_MODES:
+            raise ValueError("Неизвестный режим создания копий")
+        cfg["produce"] = body["produce"]
+    if "sync_from_drive" in body:
+        cfg["sync_from_drive"] = bool(body["sync_from_drive"])
+    if "sync_interval_minutes" in body:
+        v = int(body["sync_interval_minutes"])
+        if not 5 <= v <= 1440:
+            raise ValueError("Интервал синхронизации: от 5 до 1440 минут")
+        cfg["sync_interval_minutes"] = v
+    if cfg.get("produce") == "never" and not cfg.get("sync_from_drive"):
+        raise ValueError("Режим «не создавать копии» имеет смысл только с загрузкой копий с Google Drive")
     drive = cfg.setdefault("drive", {})
     if "drive_keep" in body:
         v = int(body["drive_keep"])
@@ -151,7 +241,6 @@ def apply_settings(body: dict) -> dict:
 
 def make_handler(sched: Scheduler, token: str, port: int):
     panel = (Path(__file__).parent / "panel.html").read_text(encoding="utf-8")
-    allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "calbackup/" + __version__
@@ -174,7 +263,10 @@ def make_handler(sched: Scheduler, token: str, port: int):
 
         def _host_ok(self) -> bool:
             # protects against DNS rebinding: only literal localhost names are served
-            if self.headers.get("Host", "") in allowed_hosts:
+            # (any port, so the panel also works through an SSH tunnel such as -L 8766:127.0.0.1:8765)
+            host = self.headers.get("Host", "")
+            name = host.rsplit(":", 1)[0] if not host.endswith("]") else host
+            if name in LOCAL_HOSTNAMES:
                 return True
             self._json(HTTPStatus.FORBIDDEN, {"error": "bad host"})
             return False
@@ -214,8 +306,14 @@ def make_handler(sched: Scheduler, token: str, port: int):
             except ValueError:
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "bad json"})
 
+            if self.path == "/api/sync":
+                if not load_config().get("drive", {}).get("enabled"):
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": "Google Drive выключен"})
+                if sched.start("sync", "manual"):
+                    return self._json(HTTPStatus.ACCEPTED, {"started": True})
+                return self._json(HTTPStatus.CONFLICT, {"error": "Уже выполняется"})
             if self.path == "/api/run":
-                if sched.start("manual"):
+                if sched.start("backup", "manual"):
                     return self._json(HTTPStatus.ACCEPTED, {"started": True})
                 return self._json(HTTPStatus.CONFLICT, {"error": "Копирование уже выполняется"})
             if self.path == "/api/settings":

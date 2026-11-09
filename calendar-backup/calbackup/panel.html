@@ -66,6 +66,7 @@ details ul{margin:6px 0 0;padding-left:18px}
   </div>
   <div style="display:flex;gap:8px">
     <button id="open">Открыть папку</button>
+    <button id="sync" hidden>Скачать с Drive</button>
     <button class="primary" id="run">Создать копию сейчас</button>
   </div>
 </header>
@@ -76,6 +77,7 @@ details ul{margin:6px 0 0;padding-left:18px}
   <div class="card"><div class="k">Следующая копия</div><div class="v" id="next">—</div><div class="s" id="next-s"></div></div>
   <div class="card"><div class="k">На этом компьютере</div><div class="v" id="local">—</div><div class="s" id="local-s"></div></div>
   <div class="card"><div class="k">Google Drive</div><div class="v" id="drive">—</div><div class="s" id="drive-s"></div></div>
+  <div class="card" id="sync-card" hidden><div class="k">Загрузка копий с Drive</div><div class="v" id="syncv">—</div><div class="s" id="sync-s"></div></div>
 </section>
 
 <section class="card" style="margin-bottom:16px">
@@ -96,7 +98,16 @@ details ul{margin:6px 0 0;padding-left:18px}
     </label>
     <label>Хранить копий на компьютере<input id="keep-local" type="number" min="1" max="10000"></label>
     <label>Хранить копий на Google Drive<input id="keep-drive" type="number" min="1" max="10000"></label>
+    <label>Этот компьютер создаёт копии
+      <select id="produce">
+        <option value="always">сам, по расписанию</option>
+        <option value="fallback">только если копия сервера запаздывает</option>
+        <option value="never">нет, только скачивает с Drive</option>
+      </select>
+    </label>
+    <label>Проверять Drive, минут<input id="sync-min" type="number" min="5" max="1440"></label>
     <label class="check"><input id="drive-on" type="checkbox"> Загружать на Google Drive</label>
+    <label class="check"><input id="sync-on" type="checkbox"> Скачивать недостающие копии с Google Drive</label>
     <div class="srcs" id="srcs"></div>
     <div class="row"><button type="submit">Сохранить</button><span class="msg" id="smsg"></span></div>
   </form>
@@ -106,8 +117,8 @@ details ul{margin:6px 0 0;padding-left:18px}
   <h2>Последние 5 обновлений</h2>
   <div class="tablewrap">
   <table>
-    <thead><tr><th>Время</th><th>Запуск</th><th>Результат</th><th>Размер</th><th>Календари / записи</th><th>Длит.</th><th>Подробности</th></tr></thead>
-    <tbody id="hist"><tr><td colspan="7" class="empty">Нет данных</td></tr></tbody>
+    <thead><tr><th>Время</th><th>Где создана</th><th>Запуск</th><th>Результат</th><th>Размер</th><th>Календари / записи</th><th>Длит.</th><th>Подробности</th></tr></thead>
+    <tbody id="hist"><tr><td colspan="8" class="empty">Нет данных</td></tr></tbody>
   </table>
   </div>
 </section>
@@ -116,7 +127,7 @@ details ul{margin:6px 0 0;padding-left:18px}
 const TOKEN = "__TOKEN__";
 const $ = id => document.getElementById(id);
 const STATUS = {ok:["Успешно","ok"], partial:["Частично","partial"], error:["Ошибка","error"]};
-const TRIGGER = {schedule:"по расписанию", manual:"вручную", cli:"из терминала"};
+const TRIGGER = {schedule:"по расписанию", manual:"вручную", cli:"из терминала", fallback:"замена серверу", sync:"скачано с Drive"};
 const TYPE = {google:"Google", caldav:"CalDAV", ics:"ICS-ссылки", macos:"Календарь macOS"};
 let last = null, dirty = false, offline = false;
 
@@ -140,21 +151,40 @@ async function api(path, body){
 function render(st){
   last = st;
   const h = st.history[0];
+  const syncing = st.running && st.current?.kind === "sync";
   $("run").disabled = st.running;
-  $("run").textContent = st.running ? "Выполняется…" : "Создать копию сейчас";
+  $("run").textContent = st.running && !syncing ? "Выполняется…" : "Создать копию сейчас";
+  $("sync").hidden = !st.sync.enabled;
+  $("sync").disabled = st.running;
+  $("sync").textContent = syncing ? "Скачиваю…" : "Скачать с Drive";
   $("state").innerHTML = st.running
-    ? `<span class="pill running">Выполняется</span> запущено ${esc(TRIGGER[st.current?.trigger]||"")} ${ago(st.current?.started_ts)}`
+    ? `<span class="pill running">${syncing ? "Загрузка с Drive" : "Создание копии"}</span> запущено ${esc(TRIGGER[st.current?.trigger]||"")} ${ago(st.current?.started_ts)}`
     : (h ? `<span class="pill ${STATUS[h.status]?.[1]}">${STATUS[h.status]?.[0]}</span> последняя копия ${ago(h.started_ts)} · расписание: ${hours(st.interval_hours)}`
          : `Копий ещё не было · расписание: ${hours(st.interval_hours)}`);
   if(st.last_error) $("state").innerHTML += ` <span class="e">· ${esc(st.last_error)}</span>`;
+  if(st.stale && st.sync.enabled) $("state").innerHTML += ` <span class="pill partial">Сервер запаздывает</span> новейшая копия ${ago(st.newest_backup_ts)}`;
 
   const okRun = st.history.find(x=>x.archive);
   $("last").textContent = h ? dt(h.started_at) : "—";
   $("last-s").innerHTML = h ? `<span class="pill ${STATUS[h.status]?.[1]}">${STATUS[h.status]?.[0]}</span>` : "";
   $("size").textContent = okRun ? bytes(okRun.size_bytes) : "—";
-  $("size-s").textContent = okRun ? `несжатый объём ${bytes(okRun.uncompressed_bytes)} · ${dt(okRun.started_at)}` : "";
-  $("next").textContent = st.running ? "после текущей" : until(st.next_run_ts);
-  $("next-s").textContent = st.running ? "" : dt(st.next_run_ts);
+  $("size-s").textContent = okRun ? (okRun.uncompressed_bytes ? `несжатый объём ${bytes(okRun.uncompressed_bytes)} · ` : "") + `${dt(okRun.started_at)}${okRun.origin ? " · " + okRun.origin : ""}` : "";
+  if(st.next_run_ts == null){
+    $("next").textContent = "не создаёт"; $("next-s").textContent = "копии создаёт сервер, этот компьютер их скачивает";
+  } else {
+    $("next").textContent = st.running ? "после текущей" : until(st.next_run_ts);
+    $("next-s").textContent = st.running ? "" : (st.produce === "fallback" ? "если сервер не создаст копию к " : "") + dt(st.next_run_ts);
+  }
+  $("sync-card").hidden = !st.sync.enabled;
+  if(st.sync.enabled){
+    const ss = st.sync.state || {};
+    const errs = ss.errors || [];
+    $("syncv").textContent = ss.last_sync_ts ? (errs.length ? "ошибка" : `${ss.downloaded||0} скачано`) : "ещё не было";
+    $("sync-s").innerHTML = (ss.last_sync_ts ? `проверено ${ago(ss.last_sync_ts)}; ` : "") +
+      (ss.newest_remote ? `новейшая на Drive: ${dt(ss.newest_remote.ts)} (${esc(ss.newest_remote.origin||"?")})` : "") +
+      (errs.length ? `<br><span class="e">${esc(errs.join("; "))}</span>` : "") +
+      (st.sync.next_ts && !syncing ? `<br>следующая проверка ${until(st.sync.next_ts)}` : "");
+  }
   $("local").textContent = `${st.local.count} · ${bytes(st.local.bytes)}`;
   $("local-s").textContent = st.local.dir;
   const dlast = h?.destinations?.find(d=>d.id==="drive");
@@ -172,6 +202,9 @@ function render(st){
     $("keep-local").value = st.keep_local;
     $("keep-drive").value = st.drive.keep;
     $("drive-on").checked = st.drive.enabled;
+    $("produce").value = st.produce;
+    $("sync-on").checked = st.sync.enabled;
+    $("sync-min").value = st.sync.interval_minutes;
     $("srcs").innerHTML = st.sources.length
       ? st.sources.map(s=>`<label class="check"><input type="checkbox" data-src="${esc(s.id)}" ${s.enabled?"checked":""}> ${esc(s.id)} <span class="sub">(${esc(TYPE[s.type]||s.type)})</span></label>`).join("")
       : `<span class="msg e">Источники не настроены: добавьте их в config.json (см. README).</span>`;
@@ -181,17 +214,18 @@ function render(st){
     const [label, cls] = STATUS[e.status] || ["?", ""];
     const det = [
       ...(e.sources||[]).map(s=>`<li>${esc(s.id)}: ${s.ok?"✓":"✗"} ${s.calendars??0} кал., ${s.events??0} зап.${s.error?` — <span class="e">${esc(s.error)}</span>`:""}${(s.warnings||[]).map(w=>`<br><span class="sub">${esc(w)}</span>`).join("")}</li>`),
-      ...(e.destinations||[]).map(d=>`<li>${d.id==="local"?"Компьютер":"Google Drive"}: ${d.ok?"✓":"✗"}${d.error?` — <span class="e">${esc(d.error)}</span>`:""}${d.link?` — <a href="${esc(d.link)}" target="_blank" rel="noopener">открыть</a>`:""}</li>`),
+      ...(e.destinations||[]).map(d=>`<li>${d.id==="local"?"Компьютер":d.id==="sync"?"Скачано на этот компьютер":"Google Drive"}: ${d.ok?"✓":"✗"}${d.error?` — <span class="e">${esc(d.error)}</span>`:""}${d.link?` — <a href="${esc(d.link)}" target="_blank" rel="noopener">открыть</a>`:""}</li>`),
     ].join("");
     return `<tr>
       <td class="num">${dt(e.started_at)}</td>
+      <td>${esc(e.origin || "—")}${e.origin && e.origin === st.host_tag ? ' <span class="sub">(этот)</span>' : ""}</td>
       <td>${esc(TRIGGER[e.trigger]||e.trigger)}</td>
       <td><span class="pill ${cls}">${label}</span></td>
       <td class="num">${bytes(e.size_bytes)}</td>
       <td class="num">${e.calendars??"—"} / ${e.events??"—"}</td>
       <td class="num">${dur(e.duration_s)}</td>
       <td><details><summary>${esc(e.status==="ok"?"показать":e.message)}</summary><ul>${det}</ul>${e.archive?`<div class="sub">${esc(e.archive)}</div>`:""}</details></td>
-    </tr>`}).join("") : `<tr><td colspan="7" class="empty">Копий ещё не было</td></tr>`;
+    </tr>`}).join("") : `<tr><td colspan="8" class="empty">Копий ещё не было</td></tr>`;
 }
 
 let timer;
@@ -217,6 +251,11 @@ $("run").onclick = async () => {
   try{ await api("/api/run", {}); }catch(e){ alert(e.message); }
   setTimeout(refresh, 500);
 };
+$("sync").onclick = async () => {
+  $("sync").disabled = true;
+  try{ await api("/api/sync", {}); }catch(e){ alert(e.message); }
+  setTimeout(refresh, 500);
+};
 $("open").onclick = () => api("/api/open-folder", {}).catch(e=>alert(e.message));
 $("interval").onchange = () => { $("custom-wrap").hidden = $("interval").value !== "custom"; };
 $("settings").oninput = () => { dirty = true; $("smsg").textContent = "Есть несохранённые изменения"; };
@@ -229,6 +268,7 @@ $("settings").onsubmit = async ev => {
     const st = await api("/api/settings", {
       interval_hours: Number(iv), keep_local: Number($("keep-local").value),
       drive_keep: Number($("keep-drive").value), drive_enabled: $("drive-on").checked, sources,
+      produce: $("produce").value, sync_from_drive: $("sync-on").checked, sync_interval_minutes: Number($("sync-min").value),
     });
     dirty = false; $("smsg").textContent = "Сохранено"; render(st);
   }catch(e){ $("smsg").innerHTML = `<span class="e">${esc(e.message)}</span>`; }

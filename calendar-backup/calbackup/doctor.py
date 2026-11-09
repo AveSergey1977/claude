@@ -13,6 +13,7 @@ from pathlib import Path
 from .config import app_home, config_path
 
 LABEL = "com.calendar-backup.agent"
+SYSTEMD_UNIT = "calendar-backup"
 
 
 def _domain() -> str:
@@ -68,6 +69,18 @@ def doctor() -> int:
         print(f"[!!] ошибка загрузки модулей: {type(e).__name__}: {e} — переустановите: ./install-macos.sh")
         ok = False
 
+    if sys.platform.startswith("linux"):
+        r = subprocess.run(
+            ["systemctl", "show", "-p", "ActiveState,SubState,NRestarts,ExecMainStatus", SYSTEMD_UNIT],
+            capture_output=True, text=True,
+        )
+        info = dict(l.split("=", 1) for l in r.stdout.splitlines() if "=" in l)
+        if r.returncode == 0 and info:
+            good = info.get("ActiveState") == "active"
+            print(f"[{'ok' if good else '!!'}] служба {SYSTEMD_UNIT}: " + ", ".join(f"{k}={v}" for k, v in info.items()))
+            if not good:
+                print(f"     журнал: sudo journalctl -u {SYSTEMD_UNIT} -n 50 ; перезапуск: sudo systemctl restart {SYSTEMD_UNIT}")
+            ok = ok and good
     if sys.platform == "darwin":
         st = _launchd_state()
         if st is None:
@@ -103,7 +116,7 @@ def doctor() -> int:
 
 def restart() -> int:
     if sys.platform != "darwin":
-        print("Команда только для macOS")
+        print(f"На сервере: sudo systemctl restart {SYSTEMD_UNIT}")
         return 1
     dom = _domain()
     if _launchd_state() is None:

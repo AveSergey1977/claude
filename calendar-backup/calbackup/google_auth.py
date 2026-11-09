@@ -18,8 +18,11 @@ def token_path():
     return app_home() / "google_token.json"
 
 
-def authorize() -> None:
-    """Interactive consent in the browser; run once from Terminal."""
+def authorize(no_browser: bool = False, port: int = 0) -> None:
+    """Interactive consent in the browser; run once from Terminal.
+
+    no_browser: for a server without a browser. The program waits on 127.0.0.1:<port>;
+    open the printed link on the Mac after `ssh -L <port>:127.0.0.1:<port> server`."""
     from google_auth_oauthlib.flow import InstalledAppFlow
 
     cs = client_secret_path()
@@ -29,9 +32,40 @@ def authorize() -> None:
             "и сохраните его по этому пути (см. README)."
         )
     flow = InstalledAppFlow.from_client_secrets_file(str(cs), SCOPES)
-    creds = flow.run_local_server(port=0, prompt="consent", access_type="offline")
+    if no_browser:
+        port = port or 8085
+        msg = (
+            f"1) На Mac в отдельном окне Терминала: ssh -N -L {port}:127.0.0.1:{port} <пользователь>@<сервер>\n"
+            "2) Откройте на Mac ссылку и подтвердите доступ:\n{url}\n"
+        )
+        creds = flow.run_local_server(
+            host="localhost", bind_addr="127.0.0.1", port=port, open_browser=False,
+            authorization_prompt_message=msg, prompt="consent", access_type="offline",
+        )
+    else:
+        creds = flow.run_local_server(port=port, prompt="consent", access_type="offline")
     _save(creds)
     print(f"Готово. Токен сохранён: {token_path()}")
+
+
+def import_token(text: str) -> None:
+    """Install a token created on another machine (the same OAuth client), e.g. the Mac's."""
+    import json
+
+    from google.oauth2.credentials import Credentials
+
+    try:
+        info = json.loads(text)
+    except ValueError:
+        raise SystemExit("На вход подан не JSON. Передайте содержимое google_token.json.")
+    if not info.get("refresh_token"):
+        raise SystemExit("В токене нет refresh_token; выполните на Mac calbackup auth-google заново.")
+    granted = set(info.get("scopes") or [])
+    lacking = [s for s in SCOPES if granted and s not in granted]
+    if lacking:
+        raise SystemExit(f"Токен выдан без прав: {', '.join(lacking)}")
+    _save(Credentials.from_authorized_user_info(info, SCOPES))
+    print(f"Токен установлен: {token_path()}")
 
 
 def _save(creds) -> None:
@@ -39,7 +73,9 @@ def _save(creds) -> None:
 
     p = token_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(creds.to_json(), encoding="utf-8")
+    fd = os.open(str(p), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(creds.to_json())
     os.chmod(p, 0o600)
 
 

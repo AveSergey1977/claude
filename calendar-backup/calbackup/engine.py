@@ -15,8 +15,9 @@ from datetime import datetime
 from pathlib import Path
 
 from . import __version__
+from .archives import archive_name, host_tag
 from .config import app_home, append_history, load_config, local_dir
-from .destinations import ARCHIVE_PREFIX, store_drive, store_local
+from .destinations import store_drive, store_local
 from .sources import get_fetcher
 
 log = logging.getLogger("calbackup")
@@ -94,6 +95,10 @@ def _replace_latest(staging: Path, base: Path) -> None:
     shutil.rmtree(old, ignore_errors=True)
 
 
+def run_lock() -> _RunLock:
+    return _RunLock()
+
+
 def run_backup(trigger: str = "manual") -> dict:
     with _RunLock():
         return _run(trigger)
@@ -103,6 +108,7 @@ def _run(trigger: str) -> dict:
     cfg = load_config()
     started = time.time()
     stamp = datetime.fromtimestamp(started).strftime("%Y%m%d-%H%M%S")
+    tag = host_tag(cfg)
     base = local_dir(cfg)
     base.mkdir(parents=True, exist_ok=True)
     staging = base / f".staging-{stamp}"
@@ -113,6 +119,7 @@ def _run(trigger: str) -> dict:
         "started_at": datetime.fromtimestamp(started).astimezone().isoformat(timespec="seconds"),
         "started_ts": started,
         "trigger": trigger,
+        "origin": tag,
         "sources": [],
         "destinations": [],
     }
@@ -155,12 +162,16 @@ def _run(trigger: str) -> dict:
             "app": "calendar-backup",
             "version": __version__,
             "created_at": entry["started_at"],
+            "created_ts": started,
             "host": socket.gethostname(),
+            "origin": tag,
+            "trigger": trigger,
+            "status": "partial" if problems else "ok",
             "sources": entry["sources"],
         }
         (staging / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        archive = base / f"{ARCHIVE_PREFIX}{stamp}.zip"
+        archive = base / archive_name(started, tag)
         entry["uncompressed_bytes"] = _dir_bytes(staging)
         _zip_dir(staging, archive)
         entry["archive"] = archive.name

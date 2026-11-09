@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import os
 import logging
 import shutil
 import sys
@@ -19,6 +20,10 @@ def _setup_logging() -> None:
     home.mkdir(parents=True, exist_ok=True)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
     fh = RotatingFileHandler(home / "calbackup.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+    try:
+        os.chmod(home / "calbackup.log", 0o600)
+    except OSError:
+        pass
     fh.setFormatter(fmt)
     sh = logging.StreamHandler()
     sh.setFormatter(fmt)
@@ -29,19 +34,25 @@ def _setup_logging() -> None:
 
 
 def main(argv=None) -> int:
+    os.umask(0o077)  # config, tokens, history, logs and backups: owner only
     p = argparse.ArgumentParser(prog="calbackup", description="Резервное копирование календарей")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("init", help="создать config.json из примера")
+    i = sub.add_parser("init", help="создать config.json из примера")
+    i.add_argument("--server", action="store_true", help="пример для сервера (Linux)")
     sub.add_parser("serve", help="демон: расписание + панель")
     sub.add_parser("run", help="выполнить копирование сейчас")
+    sub.add_parser("sync", help="скачать с Google Drive недостающие копии")
     sub.add_parser("status", help="последние 5 запусков")
-    sub.add_parser("auth-google", help="авторизовать Google Calendar и Google Drive")
+    g = sub.add_parser("auth-google", help="авторизовать Google Calendar и Google Drive")
+    g.add_argument("--no-browser", action="store_true", help="для сервера: вход через SSH-туннель")
+    g.add_argument("--port", type=int, default=0)
+    sub.add_parser("import-google-token", help="установить токен Google, переданный на stdin (с Mac)")
     sub.add_parser("grant-macos", help="запросить доступ к Календарю macOS")
-    s = sub.add_parser("set-secret", help="сохранить пароль в Связке ключей")
+    s = sub.add_parser("set-secret", help="сохранить пароль (Связка ключей на Mac, файл 600 на сервере)")
     s.add_argument("name")
     sub.add_parser("paths", help="показать пути к файлам")
     sub.add_parser("doctor", help="диагностика: служба, панель, журналы")
-    sub.add_parser("restart", help="перезапустить службу (macOS)")
+    sub.add_parser("restart", help="перезапустить службу (на Mac; на сервере: sudo systemctl restart calendar-backup)")
     a = p.parse_args(argv)
     _setup_logging()
 
@@ -51,7 +62,8 @@ def main(argv=None) -> int:
             print(f"Уже существует: {dst}")
             return 0
         dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(Path(__file__).resolve().parent.parent / "config.example.json", dst)
+        example = "config.server.example.json" if a.server else "config.example.json"
+        shutil.copy(Path(__file__).resolve().parent.parent / example, dst)
         dst.chmod(0o600)
         print(f"Создан {dst}. Отредактируйте раздел sources.")
         return 0
@@ -78,8 +90,25 @@ def main(argv=None) -> int:
     if a.cmd == "auth-google":
         from .google_auth import authorize
 
-        authorize()
+        authorize(no_browser=a.no_browser, port=a.port)
         return 0
+    if a.cmd == "import-google-token":
+        from .google_auth import import_token
+
+        import_token(sys.stdin.read())
+        return 0
+    if a.cmd == "sync":
+        from .sync import sync_from_drive
+        from .engine import AlreadyRunning
+
+        try:
+            st = sync_from_drive("cli")
+        except AlreadyRunning as ex:
+            print(ex)
+            return 2
+        print(json.dumps({k: st.get(k) for k in ("ok", "downloaded", "missing", "remote_count", "errors", "newest_remote")},
+                         ensure_ascii=False, indent=2))
+        return 0 if st.get("ok") else 1
     if a.cmd == "grant-macos":
         from .sources.macos import grant
 
@@ -92,8 +121,8 @@ def main(argv=None) -> int:
         if not value:
             print("Пустое значение, ничего не сохранено")
             return 1
-        set_secret(a.name, value)
-        print("Сохранено в Связке ключей")
+        where = set_secret(a.name, value)
+        print(f"Сохранено: {where}")
         return 0
     if a.cmd == "doctor":
         from .doctor import doctor
