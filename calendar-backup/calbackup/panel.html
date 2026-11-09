@@ -118,7 +118,7 @@ const $ = id => document.getElementById(id);
 const STATUS = {ok:["Успешно","ok"], partial:["Частично","partial"], error:["Ошибка","error"]};
 const TRIGGER = {schedule:"по расписанию", manual:"вручную", cli:"из терминала"};
 const TYPE = {google:"Google", caldav:"CalDAV", ics:"ICS-ссылки", macos:"Календарь macOS"};
-let last = null, dirty = false;
+let last = null, dirty = false, offline = false;
 
 function esc(s){return String(s ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function bytes(n){if(n==null)return"—";const u=["Б","КБ","МБ","ГБ"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return(i?n.toFixed(1):n)+" "+u[i]}
@@ -198,7 +198,17 @@ let timer;
 async function refresh(){
   clearTimeout(timer);
   try{ render(await api("/api/status")); }
-  catch(e){ $("state").innerHTML = `<span class="pill error">Нет связи</span> ${esc(e.message)}`; }
+  catch(e){
+    offline = true;
+    const net = e instanceof TypeError;  // fetch() could not reach the daemon at all
+    $("state").innerHTML = `<span class="pill error">Нет связи</span> ` + (net
+      ? `программа не отвечает (не запущена или перезапускается); повтор через 5 с. Если не проходит — в Терминале: <code>~/.local/bin/calbackup doctor</code>`
+      : esc(e.message));
+    $("run").disabled = true;
+    timer = setTimeout(refresh, 5000);
+    return;
+  }
+  offline = false;
   timer = setTimeout(refresh, last?.running ? 3000 : 30000);
 }
 

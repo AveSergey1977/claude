@@ -63,11 +63,38 @@ cat > "$PLIST" <<EOF
 </plist>
 EOF
 
-launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
-launchctl enable "gui/$(id -u)/$LABEL"
+# Restart the agent. bootout is asynchronous: an immediate bootstrap fails with
+# "Bootstrap failed: 5: Input/output error", so wait for the old job to go away and retry.
+DOMAIN="gui/$(id -u)"
+launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+for _ in $(seq 1 30); do
+  launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break
+  sleep 0.5
+done
+launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true  # a disabled job refuses bootstrap
+loaded=0
+for _ in 1 2 3 4 5; do
+  if launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then loaded=1; break; fi
+  sleep 2
+done
+if [ "$loaded" != 1 ] && ! launchctl kickstart -k "$DOMAIN/$LABEL" 2>/dev/null; then
+  echo "Не удалось запустить службу $LABEL. Повторите: ./install-macos.sh"
+  exit 1
+fi
+
+PORT="$("$VENV/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("panel_port", 8765))' "$HOME_DIR/config.json" 2>/dev/null || echo 8765)"
+up=0
+for _ in $(seq 1 30); do
+  if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/api/status" 2>/dev/null; then up=1; break; fi
+  sleep 1
+done
+if [ "$up" != 1 ]; then
+  echo "Служба запущена, но панель не отвечает. Диагностика:"
+  "$BIN/calbackup" doctor || true
+  exit 1
+fi
 
 echo
-echo "Установлено. Панель: http://127.0.0.1:8765"
+echo "Установлено. Панель: http://127.0.0.1:$PORT"
 echo "Команда: $BIN/calbackup  (добавьте $BIN в PATH, если его там нет)"
 echo "Настройки: $HOME_DIR/config.json — дальше по README, раздел «Подключение источников»."

@@ -78,6 +78,8 @@ git clone https://github.com/avesergey1977/claude.git && cd claude/calendar-back
 | `calbackup set-secret ИМЯ` | Пароль в Связку ключей |
 | `calbackup grant-macos` | Доступ к Календарю macOS |
 | `calbackup paths` | Пути к настройкам, токенам, журналу |
+| `calbackup doctor` | Диагностика, если панель пишет «Нет связи»: служба, порт, конфигурация, последние строки журналов |
+| `calbackup restart` | Перезапуск службы (или загрузка, если она не загружена) |
 
 ## Восстановление
 

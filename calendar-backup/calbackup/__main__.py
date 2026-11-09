@@ -40,6 +40,8 @@ def main(argv=None) -> int:
     s = sub.add_parser("set-secret", help="сохранить пароль в Связке ключей")
     s.add_argument("name")
     sub.add_parser("paths", help="показать пути к файлам")
+    sub.add_parser("doctor", help="диагностика: служба, панель, журналы")
+    sub.add_parser("restart", help="перезапустить службу (macOS)")
     a = p.parse_args(argv)
     _setup_logging()
 
@@ -93,6 +95,14 @@ def main(argv=None) -> int:
         set_secret(a.name, value)
         print("Сохранено в Связке ключей")
         return 0
+    if a.cmd == "doctor":
+        from .doctor import doctor
+
+        return doctor()
+    if a.cmd == "restart":
+        from .doctor import restart
+
+        return restart()
     if a.cmd == "paths":
         from .google_auth import client_secret_path, token_path
 
