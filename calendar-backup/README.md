@@ -91,6 +91,23 @@ cd /root/calendar-backup-src/calendar-backup && ./install-linux.sh
 2. iCloud: `ssh -t root@СЕРВЕР calbackup set-secret icloud`; в `/var/lib/calendar-backup/config.json` у источника `icloud` — Apple ID и `"enabled": true`; затем `systemctl restart calendar-backup`. Пароли на сервере хранятся в `/var/lib/calendar-backup/secrets.json` (права 600, только пользователь `calbackup`).
 3. Проверка: `calbackup run` и `calbackup doctor` на сервере.
 
+### Hetzner: облачный сервер + Storage Box
+
+Storage Box — только хранилище (SFTP/SMB/WebDAV), запускать программы на нём нельзя. Копии создаёт облачный сервер Hetzner Cloud; Storage Box получает третью копию вне Google.
+
+1. **Сервер.** Hetzner Console → Servers → Add server: локация — та же, что у Storage Box; образ Ubuntu 24.04; тип — самый маленький; SSH-ключ Mac (вход по паролю не нужен). Firewall: входящие — только TCP 22.
+2. **Программа.** `ssh root@IP_СЕРВЕРА`, затем команды из раздела «Установка на сервер».
+3. **Доступы Google и iCloud** — раздел «Доступы на сервере».
+4. **Storage Box.** В Hetzner Console у Storage Box включить доступ по SSH и знать его пароль (сбрасывается там же). На сервере:
+   ```bash
+   calbackup storagebox-init --host u123456.your-storagebox.de --user u123456
+   ```
+   Команда создаёт отдельный SSH-ключ программы, записывает ключ хоста Storage Box (сверьте выведенный отпечаток с опубликованным Hetzner) и печатает команду `ssh-copy-id …` — выполнить её от root, ввести пароль Storage Box один раз. Затем:
+   ```bash
+   calbackup storagebox-test
+   ```
+   При успешной записи загрузка включается со следующей копии. Архивы — в папке `calendar-backups` Storage Box, хранятся 120 последних (меняется в панели). Подменённый ключ хоста отклоняется; файл загружается как `.part` и переименовывается только после сверки размера.
+
 ### Панель сервера
 
 Слушает только `127.0.0.1` сервера. С Mac — через SSH-туннель:
@@ -116,6 +133,8 @@ ssh -N -L 8766:127.0.0.1:8765 root@СЕРВЕР
 | `calbackup auth-google` | Авторизация Google |
 | `calbackup set-secret ИМЯ` | Пароль: на Mac — в Связку ключей, на сервере — в `secrets.json` (600) |
 | `calbackup grant-macos` | Доступ к Календарю macOS |
+| `calbackup storagebox-init --host … --user …` | Storage Box: ключ SSH программы, ключ хоста, настройки |
+| `calbackup storagebox-test` | Storage Box: проверка записи; при успехе включает загрузку |
 | `calbackup paths` | Пути к настройкам, токенам, журналу |
 | `calbackup doctor` | Диагностика, если панель пишет «Нет связи»: служба, порт, конфигурация, последние строки журналов |
 | `calbackup restart` | Перезапуск службы на Mac; на сервере — `systemctl restart calendar-backup` |

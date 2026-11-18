@@ -18,6 +18,7 @@ from . import __version__
 from .archives import archive_name, host_tag
 from .config import app_home, append_history, load_config, local_dir
 from .destinations import store_drive, store_local
+from .sftp_dest import store_storage_box
 from .sources import get_fetcher
 
 log = logging.getLogger("calbackup")
@@ -188,6 +189,13 @@ def _run(trigger: str) -> dict:
                 log.exception("drive upload failed")
                 entry["destinations"].append({"id": "drive", "ok": False, "error": _short(e)})
                 problems.append(f"Google Drive: {_short(e)}")
+        if (cfg.get("storage_box") or {}).get("enabled"):
+            try:
+                entry["destinations"].append(store_storage_box(archive, cfg))
+            except Exception as e:
+                log.exception("storage box upload failed")
+                entry["destinations"].append({"id": "storagebox", "ok": False, "error": _short(e)})
+                problems.append(f"Storage Box: {_short(e)}")
         entry["status"] = "partial" if problems else "ok"
     except Exception as e:
         log.exception("backup failed")

@@ -163,6 +163,7 @@ def status_payload(sched: Scheduler) -> dict:
     hist = load_history()
     sync_state = load_sync_state()
     d = cfg.get("drive") or {}
+    sbx = cfg.get("storage_box") or {}
     interval_s = float(cfg.get("interval_hours", 6)) * 3600
     grace_s = float(cfg.get("fallback_grace_minutes", 30)) * 60
     newest = newest_backup_ts(hist, sync_state)
@@ -191,6 +192,13 @@ def status_payload(sched: Scheduler) -> dict:
             "keep": d.get("keep"),
             "folder_name": d.get("folder_name"),
             "folder_path": d.get("folder_path") or (detect_drive_folder() if d.get("mode") == "folder" else None),
+        },
+        "storage_box": {
+            "enabled": bool(sbx.get("enabled")),
+            "configured": bool(sbx.get("host") and sbx.get("username")),
+            "host": sbx.get("host"),
+            "path": sbx.get("path"),
+            "keep": sbx.get("keep", 120),
         },
         "sources": [
             {"id": s.get("id") or s.get("type"), "type": s.get("type"), "enabled": s.get("enabled", True)}
@@ -231,6 +239,16 @@ def apply_settings(body: dict) -> dict:
         drive["keep"] = v
     if "drive_enabled" in body:
         drive["enabled"] = bool(body["drive_enabled"])
+    sbx = cfg.setdefault("storage_box", {})
+    if "storagebox_keep" in body:
+        v = int(body["storagebox_keep"])
+        if not 1 <= v <= 10000:
+            raise ValueError("Число копий на Storage Box: от 1 до 10000")
+        sbx["keep"] = v
+    if "storagebox_enabled" in body:
+        if body["storagebox_enabled"] and not (sbx.get("host") and sbx.get("username")):
+            raise ValueError("Storage Box не настроен: на сервере выполните calbackup storagebox-init")
+        sbx["enabled"] = bool(body["storagebox_enabled"])
     for s in cfg.get("sources", []):
         sid = s.get("id") or s.get("type")
         if sid in (body.get("sources") or {}):

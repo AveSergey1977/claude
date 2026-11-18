@@ -13,6 +13,14 @@
     "folder_name": "Calendar Backups",
     "keep": 120
   },
+  "storage_box": {
+    "enabled": false,
+    "host": "",
+    "port": 23,
+    "username": "",
+    "path": "calendar-backups",
+    "keep": 120
+  },
   "sources": [
     {
       "id": "google",

@@ -77,6 +77,7 @@ details ul{margin:6px 0 0;padding-left:18px}
   <div class="card"><div class="k">Следующая копия</div><div class="v" id="next">—</div><div class="s" id="next-s"></div></div>
   <div class="card"><div class="k">На этом компьютере</div><div class="v" id="local">—</div><div class="s" id="local-s"></div></div>
   <div class="card"><div class="k">Google Drive</div><div class="v" id="drive">—</div><div class="s" id="drive-s"></div></div>
+  <div class="card" id="sb-card" hidden><div class="k">Storage Box</div><div class="v" id="sbv">—</div><div class="s" id="sb-s"></div></div>
   <div class="card" id="sync-card" hidden><div class="k">Загрузка копий с Drive</div><div class="v" id="syncv">—</div><div class="s" id="sync-s"></div></div>
 </section>
 
@@ -108,6 +109,8 @@ details ul{margin:6px 0 0;padding-left:18px}
     <label>Проверять Drive, минут<input id="sync-min" type="number" min="5" max="1440"></label>
     <label class="check"><input id="drive-on" type="checkbox"> Загружать на Google Drive</label>
     <label class="check"><input id="sync-on" type="checkbox"> Скачивать недостающие копии с Google Drive</label>
+    <label class="check" id="sb-on-wrap" hidden><input id="sb-on" type="checkbox"> Загружать на Storage Box</label>
+    <label id="sb-keep-wrap" hidden>Хранить копий на Storage Box<input id="sb-keep" type="number" min="1" max="10000"></label>
     <div class="srcs" id="srcs"></div>
     <div class="row"><button type="submit">Сохранить</button><span class="msg" id="smsg"></span></div>
   </form>
@@ -175,6 +178,14 @@ function render(st){
     $("next").textContent = st.running ? "после текущей" : until(st.next_run_ts);
     $("next-s").textContent = st.running ? "" : (st.produce === "fallback" ? "если сервер не создаст копию к " : "") + dt(st.next_run_ts);
   }
+  const sb = st.storage_box || {};
+  $("sb-card").hidden = !sb.configured;
+  if(sb.configured){
+    const slast = st.history.find(e => (e.destinations||[]).some(d => d.id === "storagebox"));
+    const sd = slast && slast.destinations.find(d => d.id === "storagebox");
+    $("sbv").textContent = !sb.enabled ? "выключено" : (sd ? (sd.ok ? "загружено" : "ошибка") : "включено");
+    $("sb-s").innerHTML = `${esc(sb.host)}:${esc(sb.path)}` + (sd && slast ? ` · ${dt(slast.started_at)}` : "") + (sd && !sd.ok ? `<br><span class="e">${esc(sd.error)}</span>` : "");
+  }
   $("sync-card").hidden = !st.sync.enabled;
   if(st.sync.enabled){
     const ss = st.sync.state || {};
@@ -205,6 +216,9 @@ function render(st){
     $("produce").value = st.produce;
     $("sync-on").checked = st.sync.enabled;
     $("sync-min").value = st.sync.interval_minutes;
+    $("sb-on-wrap").hidden = $("sb-keep-wrap").hidden = !st.storage_box?.configured;
+    $("sb-on").checked = !!st.storage_box?.enabled;
+    $("sb-keep").value = st.storage_box?.keep ?? 120;
     $("srcs").innerHTML = st.sources.length
       ? st.sources.map(s=>`<label class="check"><input type="checkbox" data-src="${esc(s.id)}" ${s.enabled?"checked":""}> ${esc(s.id)} <span class="sub">(${esc(TYPE[s.type]||s.type)})</span></label>`).join("")
       : `<span class="msg e">Источники не настроены: добавьте их в config.json (см. README).</span>`;
@@ -214,7 +228,7 @@ function render(st){
     const [label, cls] = STATUS[e.status] || ["?", ""];
     const det = [
       ...(e.sources||[]).map(s=>`<li>${esc(s.id)}: ${s.ok?"✓":"✗"} ${s.calendars??0} кал., ${s.events??0} зап.${s.error?` — <span class="e">${esc(s.error)}</span>`:""}${(s.warnings||[]).map(w=>`<br><span class="sub">${esc(w)}</span>`).join("")}</li>`),
-      ...(e.destinations||[]).map(d=>`<li>${d.id==="local"?"Компьютер":d.id==="sync"?"Скачано на этот компьютер":"Google Drive"}: ${d.ok?"✓":"✗"}${d.error?` — <span class="e">${esc(d.error)}</span>`:""}${d.link?` — <a href="${esc(d.link)}" target="_blank" rel="noopener">открыть</a>`:""}</li>`),
+      ...(e.destinations||[]).map(d=>`<li>${d.id==="local"?"Компьютер":d.id==="sync"?"Скачано на этот компьютер":d.id==="storagebox"?"Storage Box":"Google Drive"}: ${d.ok?"✓":"✗"}${d.error?` — <span class="e">${esc(d.error)}</span>`:""}${d.link?` — <a href="${esc(d.link)}" target="_blank" rel="noopener">открыть</a>`:""}</li>`),
     ].join("");
     return `<tr>
       <td class="num">${dt(e.started_at)}</td>
@@ -227,6 +241,8 @@ function render(st){
       <td><details><summary>${esc(e.status==="ok"?"показать":e.message)}</summary><ul>${det}</ul>${e.archive?`<div class="sub">${esc(e.archive)}</div>`:""}</details></td>
     </tr>`}).join("") : `<tr><td colspan="8" class="empty">Копий ещё не было</td></tr>`;
 }
+
+function st_last_sb(){ return !!last?.storage_box?.configured; }
 
 let timer;
 async function refresh(){
@@ -268,6 +284,7 @@ $("settings").onsubmit = async ev => {
     const st = await api("/api/settings", {
       interval_hours: Number(iv), keep_local: Number($("keep-local").value),
       drive_keep: Number($("keep-drive").value), drive_enabled: $("drive-on").checked, sources,
+      ...(st_last_sb() ? {storagebox_enabled: $("sb-on").checked, storagebox_keep: Number($("sb-keep").value)} : {}),
       produce: $("produce").value, sync_from_drive: $("sync-on").checked, sync_interval_minutes: Number($("sync-min").value),
     });
     dirty = false; $("smsg").textContent = "Сохранено"; render(st);

@@ -47,6 +47,15 @@ DEFAULTS: dict = {
         "folder_path": "",
         "keep": 120,
     },
+    # Hetzner Storage Box or any SFTP server: an extra copy outside Google (see README)
+    "storage_box": {
+        "enabled": False,
+        "host": "",
+        "port": 23,
+        "username": "",
+        "path": "calendar-backups",
+        "keep": 120,
+    },
     "sources": [],
 }
 

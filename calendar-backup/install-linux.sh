@@ -19,9 +19,9 @@ WRAPPER="/usr/local/bin/calbackup"
 if command -v apt-get >/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y -qq python3 python3-venv python3-pip curl ca-certificates >/dev/null
+  apt-get install -y -qq python3 python3-venv python3-pip curl ca-certificates openssh-client >/dev/null
 elif command -v dnf >/dev/null; then
-  dnf install -y -q python3 python3-pip curl ca-certificates >/dev/null
+  dnf install -y -q python3 python3-pip curl ca-certificates openssh-clients >/dev/null
 else
   echo "Неизвестный пакетный менеджер. Установите вручную python3 (3.9+, с модулем venv) и curl, затем повторите."
   command -v python3 >/dev/null || exit 1

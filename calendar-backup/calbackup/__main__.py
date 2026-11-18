@@ -50,6 +50,12 @@ def main(argv=None) -> int:
     sub.add_parser("grant-macos", help="запросить доступ к Календарю macOS")
     s = sub.add_parser("set-secret", help="сохранить пароль (Связка ключей на Mac, файл 600 на сервере)")
     s.add_argument("name")
+    sb = sub.add_parser("storagebox-init", help="Storage Box: ключ SSH, ключ хоста, настройки")
+    sb.add_argument("--host", required=True, help="например u123456.your-storagebox.de")
+    sb.add_argument("--user", required=True, help="например u123456 или u123456-sub1")
+    sb.add_argument("--port", type=int, default=23)
+    sb.add_argument("--path", default="calendar-backups")
+    sub.add_parser("storagebox-test", help="Storage Box: проверить запись и включить загрузку")
     sub.add_parser("paths", help="показать пути к файлам")
     sub.add_parser("doctor", help="диагностика: служба, панель, журналы")
     sub.add_parser("restart", help="перезапустить службу (на Mac; на сервере: sudo systemctl restart calendar-backup)")
@@ -124,6 +130,15 @@ def main(argv=None) -> int:
         where = set_secret(a.name, value)
         print(f"Сохранено: {where}")
         return 0
+    if a.cmd == "storagebox-init":
+        from .sftp_dest import init
+
+        init(a.host, a.user, a.port, a.path)
+        return 0
+    if a.cmd == "storagebox-test":
+        from .sftp_dest import test
+
+        return test()
     if a.cmd == "doctor":
         from .doctor import doctor
 
